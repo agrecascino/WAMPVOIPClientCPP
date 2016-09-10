@@ -7,9 +7,13 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <inttypes.h>
+#include <string.h>
 #include <tuple>
 #include <autobahn/autobahn.hpp>
-
+#include <tomcrypt.h>
+#include <tfm.h>
+#include <boost/any.hpp>
 typedef websocketpp::client<websocketpp::config::asio_client> client;
 
 #endif // INCLUDES_H
