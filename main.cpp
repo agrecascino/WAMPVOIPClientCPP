@@ -7,94 +7,43 @@ struct User {
     vector<unsigned char> privkey;
 };
 User current_user;
-int base64encode(const void* data_buf, size_t dataLength, char* result, size_t resultSize)
-{
-   const char base64chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-   const uint8_t *data = (const uint8_t *)data_buf;
-   size_t resultIndex = 0;
-   size_t x;
-   uint32_t n = 0;
-   int padCount = dataLength % 3;
-   uint8_t n0, n1, n2, n3;
-
-   /* increment over the length of the string, three characters at a time */
-   for (x = 0; x < dataLength; x += 3) 
-   {
-      /* these three 8-bit (ASCII) characters become one 24-bit number */
-      n = ((uint32_t)data[x]) << 16; //parenthesis needed, compiler depending on flags can do the shifting before conversion to uint32_t, resulting to 0
-      
-      if((x+1) < dataLength)
-         n += ((uint32_t)data[x+1]) << 8;//parenthesis needed, compiler depending on flags can do the shifting before conversion to uint32_t, resulting to 0
-      
-      if((x+2) < dataLength)
-         n += data[x+2];
-
-      /* this 24-bit number gets separated into four 6-bit numbers */
-      n0 = (uint8_t)(n >> 18) & 63;
-      n1 = (uint8_t)(n >> 12) & 63;
-      n2 = (uint8_t)(n >> 6) & 63;
-      n3 = (uint8_t)n & 63;
-            
-      /*
-       * if we have one byte available, then its encoding is spread
-       * out over two characters
-       */
-      if(resultIndex >= resultSize) return 1;   /* indicate failure: buffer too small */
-      result[resultIndex++] = base64chars[n0];
-      if(resultIndex >= resultSize) return 1;   /* indicate failure: buffer too small */
-      result[resultIndex++] = base64chars[n1];
-
-      /*
-       * if we have only two bytes available, then their encoding is
-       * spread out over three chars
-       */
-      if((x+1) < dataLength)
-      {
-         if(resultIndex >= resultSize) return 1;   /* indicate failure: buffer too small */
-         result[resultIndex++] = base64chars[n2];
-      }
-
-      /*
-       * if we have all three bytes available, then their encoding is spread
-       * out over four characters
-       */
-      if((x+2) < dataLength)
-      {
-         if(resultIndex >= resultSize) return 1;   /* indicate failure: buffer too small */
-         result[resultIndex++] = base64chars[n3];
-      }
-   }  
-
-   /*
-    * create and add padding that is required if we did not have a multiple of 3
-    * number of characters available
-    */
-   if (padCount > 0) 
-   { 
-      for (; padCount < 3; padCount++) 
-      { 
-         if(resultIndex >= resultSize) return 1;   /* indicate failure: buffer too small */
-         result[resultIndex++] = '=';
-      } 
-   }
-   if(resultIndex >= resultSize) return 1;   /* indicate failure: buffer too small */
-   result[resultIndex] = 0;
-   return 0;   /* indicate success */
-}
+rsa_key key;
 
 void process_command(const autobahn::wamp_event& event)
 {
-
+    vector<string> arguments;
+    while(true)
+    cout << "we here now" << endl;
+    for(unsigned int i = 0;i < event.number_of_arguments();i++)
+    {
+        try{
+        cout << event.argument<string>(i) << endl;
+        arguments.push_back(event.argument<string>(i));
+        }catch(const std::exception &e)
+        {
+            cout << e.what() << endl;
+        }
+    }
 }
 
 int main(void)
 {
-    rsa_key key;
     ltc_mp = ltm_desc;
     register_prng(&sprng_desc);
     if (rsa_make_key(NULL, find_prng("sprng"), 1536/8, 65537, &key) != CRYPT_OK) {
         return -1;
     }
+    unsigned char* public_key = (unsigned char*)malloc(32768);
+    memset(public_key,0,1024);
+    unsigned long length;
+    rsa_export(public_key,&length,PK_PUBLIC,&key);
+    current_user.pubkey = vector<unsigned char>(public_key,public_key + length);
+    string public_key2;
+    for(unsigned int i =0;i < length;i++)
+    {
+        public_key2.push_back(current_user.pubkey[i]);
+    }
+    string base64key = base_64_encode(public_key2);
     boost::asio::io_service io;
     client ws_client;
     ws_client.init_asio(&io);
@@ -140,16 +89,9 @@ int main(void)
                     }
                     cout << "Enter your username:" << endl;
                     getline(cin,current_user.name);
-                    unsigned char* public_key = new unsigned char[1024];
-                    memset(public_key,0,1024);
-                    unsigned long length;
-                    rsa_export(public_key,&length,PK_PUBLIC,&key);
-                    current_user.pubkey = vector<unsigned char>(public_key,public_key + length);
-                    auto args = std::make_tuple(std::string("NICK"),std::string(current_user.name),current_user.pubkey);
+                    cout << "com.audioctl." + current_user.name << endl;
                     session->subscribe("com.audioctl." + current_user.name,&process_command);
-                    session->publish("com.audioctl.main", args);
-
-
+                    session->publish("com.audioctl.main", std::make_tuple(std::string("NICK"),std::string(current_user.name),base64key));
                 });
             });
     });

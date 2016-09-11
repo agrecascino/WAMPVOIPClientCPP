@@ -11,4 +11,4 @@ HEADERS += \
 DEFINES += LTM_DESC
 unix|win32: LIBS += -lboost_system -lboost_thread -lssl -lcrypto -lpthread -ltfm -ltomcrypt -ltommath
 
-QMAKE_CXXFLAGS += -std=c++14
+QMAKE_CXXFLAGS += -std=c++14 -O0 -g3
