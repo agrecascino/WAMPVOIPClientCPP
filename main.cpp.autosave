@@ -3,14 +3,47 @@ using namespace std;
 struct User {
     string name;
     string channel;
+    vector<unsigned char> pubkey;
+    vector<unsigned char> privkey;
 };
 User current_user;
-int main(int argc, char *argv[])
+rsa_key key;
+
+void process_command(const autobahn::wamp_event& event)
 {
-    RAND_seed();
-    RSA *rsakey = RSA_new();
-    rsakey = RSA_generate_key(1536,17,NULL,NULL);
-    
+    vector<string> arguments;
+    while(true)
+    cout << "we here now" << endl;
+    for(unsigned int i = 0;i < event.number_of_arguments();i++)
+    {
+        try{
+        cout << event.argument<string>(i) << endl;
+        arguments.push_back(event.argument<string>(i));
+        }catch(const std::exception &e)
+        {
+            cout << e.what() << endl;
+        }
+    }
+}
+
+int main(void)
+{
+    ltc_mp = ltm_desc;
+    register_prng(&sprng_desc);
+    if (rsa_make_key(NULL, find_prng("sprng"), 1536/8, 65537, &key) != CRYPT_OK) {
+        return -1;
+    }
+    unsigned char* public_key = (unsigned char*)malloc(32768);
+    memset(public_key,0,1024);
+    unsigned long length;
+    rsa_export(public_key,&length,PK_PUBLIC,&key);
+    current_user.pubkey = vector<unsigned char>(public_key,public_key + length);
+    string public_key2;
+    for(unsigned int i =0;i < length;i++)
+    {
+        public_key2.push_back(current_user.pubkey[i]);
+    }
+    string base64key = base_64_encode(public_key2);
     boost::asio::io_service io;
     client ws_client;
     ws_client.init_asio(&io);
@@ -54,7 +87,16 @@ int main(int argc, char *argv[])
                       io.stop();
                       return;
                     }
+                    cout << "Enter your username:" << endl;
                     getline(cin,current_user.name);
+                    session->subscribe("com.audioctl." + current_user.name,&process_command);
+                    session->publish("com.audioctl.main", std::make_tuple(std::string("NICK"),std::string(current_user.name),base64key));
+                    while(true)
+                    {
+                        session->publish("com.audioctl." + current_user.name,std::make_tuple(std::string("PING")));
+                        this_thread::sleep_for(chrono::seconds(3));
+                        
+                    }
                 });
             });
     });

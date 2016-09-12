@@ -89,9 +89,14 @@ int main(void)
                     }
                     cout << "Enter your username:" << endl;
                     getline(cin,current_user.name);
-                    cout << "com.audioctl." + current_user.name << endl;
                     session->subscribe("com.audioctl." + current_user.name,&process_command);
                     session->publish("com.audioctl.main", std::make_tuple(std::string("NICK"),std::string(current_user.name),base64key));
+                    while(true)
+                    {
+                        session->publish("com.audioctl." + current_user.name,std::make_tuple(std::string("PING")));
+                        this_thread::sleep_for(chrono::seconds(3));
+
+                    }
                 });
             });
     });
