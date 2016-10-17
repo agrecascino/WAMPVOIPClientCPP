@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 #include <inttypes.h>
+#include <math.h>
+#include <functional>
 #include <string.h>
 #include <opus/opus.h>
 #include <portaudio.h>

@@ -1,5 +1,46 @@
 #include "includes.h"
 using namespace std;
+struct Message {
+    Message(string ch,string usr,string msg)
+    {
+        channel = ch;
+        name = usr;
+        message = msg;
+    }
+
+    string channel;
+    string name;
+    string message;
+};
+
+class ChatLogger {
+public:
+    void addMessage(Message msg)
+    {
+        messages.push_back(msg);
+    }
+
+    void writeOutLinesLambda(size_t lines,function<int(Message)> func)
+    {
+        if(lines > messages.size())
+            lines = messages.size();
+        for(size_t l = messages.size() - 1 ;l < (messages.size() - 1) - lines;l--)
+        {
+            int output_message = func(messages[l]);
+            if(output_message)
+                cout << "<" << messages[l].name << ">" << " " << messages[l].message << endl;
+        }
+    }
+
+    void writeOutLines(size_t lines)
+    {
+        writeOutLinesLambda(lines,[=](Message msg){ return true; });
+    }
+
+private:
+    vector<Message> messages;
+};
+
 struct RemoteUser {
     RemoteUser(string name_temp,autobahn::wamp_subscription subscription_temp)
     {
@@ -19,10 +60,12 @@ struct User {
     vector<unsigned char> pubkey;
     vector<unsigned char> privkey;
 };
+ChatLogger logger;
 User current_user;
 OpusEncoder *encoder;
 OpusDecoder *decoder;
 PaStream *stream;
+PaStream *outstream;
 boost::asio::io_service io;
 auto session = make_shared<autobahn::wamp_session>(io,false);
 void publish_to_channel(string channame,vector<string> arguments)
@@ -50,7 +93,7 @@ void infinite_ping_loop()
 {
     while(true){
         publish_to_channel("com.audioctl." + current_user.name,vector<string>(1,"PING"));
-        this_thread::sleep_for(chrono::seconds(4));
+        this_thread::sleep_for(chrono::seconds(2));
     }
 }
 thread *t;
@@ -59,12 +102,14 @@ void audio_encode()
 {
      while(true)
      {
-     short data[512];
-     Pa_ReadStream(stream,&data,512);
+     short data[960];
+     Pa_ReadStream(stream,&data,960);
      unsigned char packet[3*1276];
-     int nbBytes = opus_encode(encoder,data,512,packet,3*1276);
-     vector<unsigned char> packt(packet,packet + 512);
-     session->publish("com.audiodata." + current_user.name,packt);
+     int nbBytes = opus_encode(encoder,data,960,packet,3*1276);
+     vector<unsigned char> packt(packet,packet + nbBytes);
+     vector<vector<unsigned char>> packtpackt;
+     packtpackt.push_back(packt);
+     session->publish("com.audiodata." + current_user.name,packtpackt);
      }
 }
 
@@ -79,8 +124,10 @@ void audio_play(const autobahn::wamp_event& event)
         cout << e.what() << endl;
     }
     short output[3*1276];
+    cout << "Attempting to play audio..." << endl;
     int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,3*1276,0);
-    Pa_WriteStream(stream,&output,frame_size);
+    cout << frame_size << endl;
+    Pa_WriteStream(outstream,&output,frame_size);
 }
 void process_command(const autobahn::wamp_event& event)
 {
@@ -109,10 +156,11 @@ void process_command(const autobahn::wamp_event& event)
                    t2 = new thread(audio_encode);
                    t = new thread(infinite_ping_loop);
                    t->detach();
+                   delete[] nonb64key;
                }
            }
                else{
-                   for(int i = 0;i < arguments[0].size();i++){
+                   for(size_t i = 0;i < arguments[0].size();i++){
                        string argument = base_64_decode(arguments[0][i]);
                        unsigned long outlen = 512;
                        unsigned char *output = new unsigned char[512];
@@ -124,31 +172,65 @@ void process_command(const autobahn::wamp_event& event)
                }
                if(arguments[0][0] == ":"){
                     if(arguments[0][1] == "CHANUSERNAMES"){
-                        for(int i = 2; i <arguments[0].size();i++)
+                        for(size_t i = 3; i < arguments[0].size();i++)
                         {
-                            boost::future<void> subscribe_future = session->subscribe("com.audiodata." + arguments[0][i],&audio_play).then([&] (boost::future<autobahn::wamp_subscription> subscribed)
+                            autobahn::wamp_subscription subscription;
+                            session->subscribe("com.audiodata." + arguments[0][i],&audio_play).then([&] (boost::future<autobahn::wamp_subscription> subscribed)
                             {
                                 try {
-                                    current_user.channelusers.push_back(RemoteUser(arguments[0][i],subscribed.get()));
-                                    session->subscribe("com.audiodata." + arguments[0][i],&audio_play);
-                                    cout << "Channel user: " << arguments[0][i] << endl;
+                                    subscription = subscribed.get();
                                 }
                                 catch (const std::exception& e) {
                                     std::cerr << e.what() << std::endl;
                                     io.stop();
                                     return;
                             } });
+                            current_user.channelusers.push_back(RemoteUser(arguments[0][i],subscription));
+                            session->subscribe("com.audiodata." + arguments[0][i],&audio_play);
+                            cout << "Channel user: " << arguments[0][i] << endl;
                         }
+                        return;
+                    }
+
+                    if(arguments[0][1] == "NEWCHANUSER"){
+
+                            autobahn::wamp_subscription subscription;
+                            session->subscribe("com.audiodata." + arguments[0][3],&audio_play).then([&] (boost::future<autobahn::wamp_subscription> subscribed)
+                            {
+                                try {
+                                    subscription = subscribed.get();
+                                }
+                                catch (const std::exception& e) {
+                                    std::cerr << e.what() << std::endl;
+                                    io.stop();
+                                    return;
+                            } });
+                            current_user.channelusers.push_back(RemoteUser(arguments[0][3],subscription));
+                            session->subscribe("com.audiodata." + arguments[0][3],&audio_play);
+                            cout << "New channel user: " << arguments[0][3] << endl;
+                        return;
+                    }
+                    if(arguments[0][1] == "PRUNECHANUSER"){
+                        for(size_t i = 0;i < current_user.channelusers.size();i++)
+                            if(current_user.channelusers[i].name == arguments[0][3])
+                            {
+                                current_user.channelusers.erase(current_user.channelusers.begin() + i);
+                            }
+                        return;
                     }
                     if(arguments[0][1] == "MESSAGE"){
-                        cout << "<" << arguments[0][2] << ">" << " " << arguments[0][4] << endl;
+                        logger.addMessage(Message(arguments[0][3],arguments[0][2],arguments[0][4]));
+                        logger.writeOutLines(1);
+                        return;
+
                     }
 
                     if(arguments[0][1] == "CHANNAMES"){
-                        for(int i = 2; i <arguments[0].size();i++)
+                        for(size_t i = 2; i <arguments[0].size();i++)
                         {
                             cout << "Channel: " << arguments[0][i] << endl;
                         }
+                        return;
                     }
                }
                else{
@@ -162,10 +244,13 @@ int main(void)
 {
     ltc_mp = ltm_desc;
     register_prng(&sprng_desc);
-    int err;
+    int err = 0;
+
     Pa_Initialize();
-    Pa_OpenDefaultStream(&stream,2,2,paInt16,48000,4,NULL,NULL);
+    Pa_OpenDefaultStream(&outstream,0,2,paInt16,48000,240,NULL,NULL);
+    Pa_OpenDefaultStream(&stream,2,0,paInt16,48000,240,NULL,NULL);
     Pa_StartStream(stream);
+    Pa_StartStream(outstream);
     encoder = opus_encoder_create(48000,2,OPUS_APPLICATION_AUDIO,&err);
     decoder = opus_decoder_create(48000,2,&err);
     err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(48000));
@@ -198,7 +283,6 @@ int main(void)
     boost::future<void> connect_future;
     boost::future<void> start_future;
     boost::future<void> join_future;
-    boost::future<void> provide_future;
 
     connect_future = transport->connect().then([&](boost::future<void> connected){
             try {
