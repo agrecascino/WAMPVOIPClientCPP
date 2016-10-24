@@ -17,7 +17,6 @@
 #include <autobahn/autobahn.hpp>
 #include <autobahn/wamp_subscription.hpp>
 #include <tomcrypt.h>
-#include <tfm.h>
 #include <thread>
 #include <boost/any.hpp>
 typedef websocketpp::client<websocketpp::config::asio_client> client;

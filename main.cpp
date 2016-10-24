@@ -1,4 +1,5 @@
 #include "includes.h"
+
 using namespace std;
 struct Message {
     Message(string ch,string usr,string msg)
@@ -102,10 +103,10 @@ void audio_encode()
 {
      while(true)
      {
-     short data[960];
-     Pa_ReadStream(stream,&data,960);
-     unsigned char packet[3*1276];
-     int nbBytes = opus_encode(encoder,data,960,packet,3*1276);
+     short data[1920];
+     Pa_ReadStream(stream,&data,1920);
+     unsigned char packet[4*1276];
+     int nbBytes = opus_encode(encoder,data,1920,packet,4*1276);
      vector<unsigned char> packt(packet,packet + nbBytes);
      vector<vector<unsigned char>> packtpackt;
      packtpackt.push_back(packt);
@@ -123,10 +124,10 @@ void audio_play(const autobahn::wamp_event& event)
     {
         cout << e.what() << endl;
     }
-    short output[3*1276];
-    cout << "Attempting to play audio..." << endl;
-    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,3*1276,0);
-    cout << frame_size << endl;
+    short output[4*1276];
+    //cout << "Attempting to play audio..." << endl;
+    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,4*1276,0);
+    //cout << frame_size << endl;
     Pa_WriteStream(outstream,&output,frame_size);
 }
 void process_command(const autobahn::wamp_event& event)
