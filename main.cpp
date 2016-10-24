@@ -1,5 +1,4 @@
 #include "includes.h"
-
 using namespace std;
 struct Message {
     Message(string ch,string usr,string msg)
@@ -13,7 +12,78 @@ struct Message {
     string name;
     string message;
 };
+struct DataWithSampleTicks
+{
+    DataWithSampleTicks(int tick,int mintick,vector<short> audio)
+    {
+        sampletick = tick;
+        minutetick = mintick;
+        data = audio;
+    }
 
+    int sampletick;
+    int minutetick;
+    vector<short> data;
+};
+class Mixer {
+public:
+    Mixer()
+    {
+        alutInit(0,NULL);
+        alGenSources(1,&source);
+        signal(SIGALRM,incrementTick);
+        ualarm(0,666);
+    }
+    template <typename T>
+    int commitNewDataToStream(vector<T> audiodata, int audiotype)
+    {
+        if(audiotype == MIXER_AUDIO_16BITS_STEREO)
+        {
+           streams.push_back(DataWithSampleTicks(sampleticks,minuteticks,vector<short>(audiodata)));
+        }
+        else
+        {
+            return -1;
+        }
+    }
+    static void incrementTick(int signal)
+    {
+        sampleticks += 32;
+        if(sampleticks > 48000)
+        {
+            minuteticks++;
+            sampleticks = 0;
+        }
+    }
+
+    int emmitBufferContentsToStream(){
+        vector<short> mixed_audio_data;
+        mixed_audio_data.reserve(sampleticks + (minuteticks*48000));
+        for(DataWithSampleTicks audio : streams)
+        {
+            vector<short> i = audio.data;
+            for(int k = audio.sampletick;k < i.size();k++)
+            {
+                if(k < mixed_audio_data.size())
+                {
+                    mixed_audio_data[k] = fmax((int)(mixed_audio_data[k]/2) + (i[k]/2),32768);
+                }
+                else
+                {
+                    mixed_audio_data.push_back(i[k]);
+                }
+            }
+        }
+        streams.clear();
+    }
+
+private:
+    static std::atomic<int> minuteticks;
+    static std::atomic<int> sampleticks;
+    vector<DataWithSampleTicks> streams;
+    ALuint buffer, source;
+};
+Mixer mixer;
 class ChatLogger {
 public:
     void addMessage(Message msg)
@@ -65,8 +135,6 @@ ChatLogger logger;
 User current_user;
 OpusEncoder *encoder;
 OpusDecoder *decoder;
-PaStream *stream;
-PaStream *outstream;
 boost::asio::io_service io;
 auto session = make_shared<autobahn::wamp_session>(io,false);
 void publish_to_channel(string channame,vector<string> arguments)
@@ -246,12 +314,6 @@ int main(void)
     ltc_mp = ltm_desc;
     register_prng(&sprng_desc);
     int err = 0;
-
-    Pa_Initialize();
-    Pa_OpenDefaultStream(&outstream,0,2,paInt16,48000,240,NULL,NULL);
-    Pa_OpenDefaultStream(&stream,2,0,paInt16,48000,240,NULL,NULL);
-    Pa_StartStream(stream);
-    Pa_StartStream(outstream);
     encoder = opus_encoder_create(48000,2,OPUS_APPLICATION_AUDIO,&err);
     decoder = opus_decoder_create(48000,2,&err);
     err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(48000));

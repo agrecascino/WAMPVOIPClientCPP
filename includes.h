@@ -12,18 +12,25 @@
 #include <functional>
 #include <string.h>
 #include <opus/opus.h>
-#include <portaudio.h>
+#include <AL/al.h>
+#include <AL/alc.h>
+#include <AL/alut.h>
 #include <tuple>
 #include <autobahn/autobahn.hpp>
 #include <autobahn/wamp_subscription.hpp>
 #include <tomcrypt.h>
 #include <thread>
+#include <signal.h>
 #include <boost/any.hpp>
 typedef websocketpp::client<websocketpp::config::asio_client> client;
 
 rsa_key key;
 rsa_key serv_pub;
-
+ALuint buffer, source;
+#define MIXER_AUDIO_16BITS_STEREO 1
+#define MIXER_AUDIO_8BITS_STEREO  2
+#define MIXER_AUDIO_16BITS_MONO   3
+#define MIXER_AUDIO_8BITS_MONO    4
 void split_string(std::string const &k, std::string const &delim, std::vector<std::string> &output)
 {
     // Due to the use of strpbrk here, this will stop copying at a null char. This is in fact desirable.
