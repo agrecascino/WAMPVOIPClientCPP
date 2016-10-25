@@ -25,6 +25,7 @@ struct DataWithSampleTicks
     int minutetick;
     vector<short> data;
 };
+/*
 class Mixer {
 public:
     Mixer()
@@ -48,11 +49,11 @@ public:
     }
     static void incrementTick(int signal)
     {
-        sampleticks += 32;
-        if(sampleticks > 48000)
+        Mixer::sampleticks += 32;
+        if(Mixer::sampleticks > 48000)
         {
-            minuteticks++;
-            sampleticks = 0;
+            Mixer::minuteticks++;
+            Mixer::sampleticks = 0;
         }
     }
 
@@ -84,6 +85,21 @@ private:
     ALuint buffer, source;
 };
 Mixer mixer;
+*/
+void getline(string &str)
+{
+    str = "";
+    while(true)
+    {
+        char i = getch();
+        if(i == '\b' && str.size() != 0)
+            str.pop_back();
+        str += i;
+        if(i == '\n')
+            break;
+    }
+}
+
 class ChatLogger {
 public:
     void addMessage(Message msg)
@@ -99,7 +115,7 @@ public:
         {
             int output_message = func(messages[l]);
             if(output_message)
-                cout << "<" << messages[l].name << ">" << " " << messages[l].message << endl;
+                printw(string("<" + messages[l].name + ">" + " " + messages[l].message + "\n").c_str());
         }
     }
 
@@ -135,6 +151,7 @@ ChatLogger logger;
 User current_user;
 OpusEncoder *encoder;
 OpusDecoder *decoder;
+ALCdevice *device;
 boost::asio::io_service io;
 auto session = make_shared<autobahn::wamp_session>(io,false);
 void publish_to_channel(string channame,vector<string> arguments)
@@ -148,7 +165,7 @@ void publish_to_channel(string channame,vector<string> arguments)
 
         if(rsa_encrypt_key_ex((unsigned char*)(void*)arg.c_str(),arg.size(),encrypted_out,&outlen,NULL,NULL,NULL,0,0,LTC_PKCS_1_V1_5,&serv_pub) != CRYPT_OK)
         {
-            cout << "Encryption failed" << endl;
+            printw("Encryption failed\n");
         }
 
         string encrypted_rsa(encrypted_out,encrypted_out + outlen);
@@ -169,16 +186,24 @@ thread *t;
 thread *t2;
 void audio_encode()
 {
+     int val;
      while(true)
      {
+     alGetSourcei(source, AL_BUFFERS_PROCESSED, &val);
+     if(val <= 0)
+        continue;
+     alcGetIntegerv(device, ALC_CAPTURE_SAMPLES, 1, &val);
+     if(val > 1920)
+         continue;
      short data[1920];
-     Pa_ReadStream(stream,&data,1920);
+     alcCaptureStart(device);
      unsigned char packet[4*1276];
      int nbBytes = opus_encode(encoder,data,1920,packet,4*1276);
      vector<unsigned char> packt(packet,packet + nbBytes);
      vector<vector<unsigned char>> packtpackt;
      packtpackt.push_back(packt);
      session->publish("com.audiodata." + current_user.name,packtpackt);
+     alcCaptureStop(device);
      }
 }
 
@@ -190,13 +215,20 @@ void audio_play(const autobahn::wamp_event& event)
 
     }catch(const std::exception &e)
     {
-        cout << e.what() << endl;
+        printw( e.what());
     }
     short output[4*1276];
-    //cout << "Attempting to play audio..." << endl;
+    //printw("Attempting to play audio...");
     int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,4*1276,0);
-    //cout << frame_size << endl;
-    Pa_WriteStream(outstream,&output,frame_size);
+    //printw( frame_size);
+    ALuint buffer, source;
+    alGenSources(1,&source);
+    alGenBuffers(1,&buffer);
+
+    alBufferData(buffer,AL_FORMAT_STEREO16,output,frame_size,48000);
+    alSourceQueueBuffers(source,1,&buffer);
+    alSourcePlay(source);
+
 }
 void process_command(const autobahn::wamp_event& event)
 {
@@ -209,7 +241,7 @@ void process_command(const autobahn::wamp_event& event)
 
            }catch(const std::exception &e)
            {
-               cout << e.what() << endl;
+               printw( e.what());
            }
 
        }
@@ -221,7 +253,7 @@ void process_command(const autobahn::wamp_event& event)
                    unsigned long k64len = 4096;
                    base64_decode((unsigned char*)(void*)base64publickey.c_str(),base64publickey.size(),nonb64key,&k64len);
                    rsa_import(nonb64key,k64len,&serv_pub);
-                   cout << base64publickey << endl;
+                   printw( string(base64publickey  + "\n").c_str());
                    t2 = new thread(audio_encode);
                    t = new thread(infinite_ping_loop);
                    t->detach();
@@ -250,13 +282,12 @@ void process_command(const autobahn::wamp_event& event)
                                     subscription = subscribed.get();
                                 }
                                 catch (const std::exception& e) {
-                                    std::cerr << e.what() << std::endl;
                                     io.stop();
                                     return;
                             } });
                             current_user.channelusers.push_back(RemoteUser(arguments[0][i],subscription));
                             session->subscribe("com.audiodata." + arguments[0][i],&audio_play);
-                            cout << "Channel user: " << arguments[0][i] << endl;
+                            printw(string("Channel user: " + arguments[0][i] + "\n").c_str());
                         }
                         return;
                     }
@@ -270,13 +301,12 @@ void process_command(const autobahn::wamp_event& event)
                                     subscription = subscribed.get();
                                 }
                                 catch (const std::exception& e) {
-                                    std::cerr << e.what() << std::endl;
                                     io.stop();
                                     return;
                             } });
                             current_user.channelusers.push_back(RemoteUser(arguments[0][3],subscription));
                             session->subscribe("com.audiodata." + arguments[0][3],&audio_play);
-                            cout << "New channel user: " << arguments[0][3] << endl;
+                            printw(string("New channel user: " + arguments[0][3] + "\n").c_str());
                         return;
                     }
                     if(arguments[0][1] == "PRUNECHANUSER"){
@@ -297,7 +327,7 @@ void process_command(const autobahn::wamp_event& event)
                     if(arguments[0][1] == "CHANNAMES"){
                         for(size_t i = 2; i <arguments[0].size();i++)
                         {
-                            cout << "Channel: " << arguments[0][i] << endl;
+                            printw(string("Channel: " + arguments[0][i] + "\n").c_str());
                         }
                         return;
                     }
@@ -311,13 +341,19 @@ void process_command(const autobahn::wamp_event& event)
 
 int main(void)
 {
+    alutInit(0,NULL);
+    int err;
+    device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_STEREO16, 1920);
     ltc_mp = ltm_desc;
-    register_prng(&sprng_desc);
-    int err = 0;
     encoder = opus_encoder_create(48000,2,OPUS_APPLICATION_AUDIO,&err);
     decoder = opus_decoder_create(48000,2,&err);
     err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(48000));
+    raw();
+    initscr();
+    vin = newwin(0,0,0,0);
+    wrefresh(vin);
 
+    register_prng(&sprng_desc);
     if (rsa_make_key(NULL, find_prng("sprng"), 1536/8, 65537, &key) != CRYPT_OK) {
         return -1;
     }
@@ -337,8 +373,9 @@ int main(void)
     client ws_client;
     ws_client.init_asio(&io);
     string uri;
-    cout << "Enter your WAMP server uri." << endl;
-    getline(cin,uri);
+    printw(string("Enter your WAMP server uri.\n").c_str());
+    refresh();
+    getline(uri);
     auto transport = make_shared<autobahn::wamp_websocketpp_websocket_transport<websocketpp::config::asio_client>>(ws_client,uri,false);
 
     transport->attach(static_pointer_cast<autobahn::wamp_transport_handler>(session));
@@ -350,39 +387,35 @@ int main(void)
     connect_future = transport->connect().then([&](boost::future<void> connected){
             try {
             connected.get();
+            printw("Connected to crossbar server.\n");
 } catch(const exception& e) {
-            cerr << e.what() << endl;
             io.stop();
             return;
 }
-
-            cout << "Connected to crossbar server." << endl;
             start_future = session->start().then([&](boost::future<void> started) {
             try {
             started.get();
 }catch(const exception& e) {
-            cerr << e.what() << endl;
+
             io.stop();
             return;
 }
 
             join_future = session->join("realm1").then([&](boost::future<uint64_t> joined){
             try {
-            cerr << "joined realm:" << joined.get() << endl;
 
 }catch (const exception& e) {
-            cerr << e.what() << endl;
             io.stop();
             return;
 }
-            cout << "Enter your username:" << endl;
-            getline(cin,current_user.name);
+            printw("Enter your username:\n");
+            getline(current_user.name);
             session->subscribe("com.audioctl." + current_user.name,&process_command);
             session->publish("com.audioctl.main", std::make_tuple(std::string("NICK"),std::string(current_user.name),base64key));
             while(true)
     {
             string command;
-            getline(cin,command);
+            getline(command);
             if(command.size() == 0)
             continue;
             if(command[0] == '/')
@@ -421,7 +454,7 @@ int main(void)
                 }
                 else
                 {
-                    cout << "You need to leave your channel first." << endl;
+                    printw("You need to leave your channel first.\n");
                 }
                 continue;
             }
@@ -441,7 +474,7 @@ int main(void)
                 }
                 else
                 {
-                    cout << "You need to be in a channel." << endl;
+                    printw("You need to be in a channel.\n");
                 }
                 continue;
             }

@@ -22,11 +22,13 @@
 #include <thread>
 #include <signal.h>
 #include <boost/any.hpp>
+#include <ncurses.h>
 typedef websocketpp::client<websocketpp::config::asio_client> client;
 
 rsa_key key;
 rsa_key serv_pub;
 ALuint buffer, source;
+WINDOW *vin;
 #define MIXER_AUDIO_16BITS_STEREO 1
 #define MIXER_AUDIO_8BITS_STEREO  2
 #define MIXER_AUDIO_16BITS_MONO   3
