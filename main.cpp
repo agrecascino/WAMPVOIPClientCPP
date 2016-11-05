@@ -200,7 +200,9 @@ void publish_to_channel(string channame,vector<string> arguments)
                     wrefresh(vin);
                 }
                 string encrypted_rsa(encrypted_out,encrypted_out + outlen);
+                wprintw(vin,string(base_64_encode(encrypted_rsa) + "\n").c_str());
                 enc[i] = base_64_encode(encrypted_rsa);
+                outlen = 512;
             }
             base64_encrypted_arguments.insert(base64_encrypted_arguments.end(),enc.begin(),enc.end());
             continue;
@@ -211,6 +213,7 @@ void publish_to_channel(string channame,vector<string> arguments)
             wrefresh(vin);
         }
         string encrypted_rsa(encrypted_out,encrypted_out + outlen);
+        wprintw(vin,string(base_64_encode(encrypted_rsa) + "\n").c_str());
         base64_encrypted_arguments.push_back(base_64_encode(encrypted_rsa));
         delete[] encrypted_out;
     }
@@ -272,9 +275,13 @@ void audio_play(const autobahn::wamp_event& event)
     alSourcePlay(source);
 
 }
+volatile int tickctr = 0;
 void process_command(const autobahn::wamp_event& event)
 {
-
+    tickctr++;
+    wprintw(vin,itoa(tickctr,10));
+    wprintw(vin,"\n");
+    wrefresh(vin);
     vector<vector<string>> arguments;
     for(unsigned int i = 0;i < event.number_of_arguments();i++)
     {
@@ -413,6 +420,7 @@ int main(void)
     noecho();
     vin = newwin(LINES - 1,COLS,0,0);
     cmd = newwin(1,COLS,LINES - 1,0);
+    scrollok(vin, TRUE);
     wrefresh(vin);
     register_prng(&sprng_desc);
     if (rsa_make_key(NULL, find_prng("sprng"), 1536/8, 65537, &key) != CRYPT_OK) {
@@ -491,6 +499,7 @@ int main(void)
         if(cmd[0] == "quit")
         {
             publish_to_channel("com.audioctl." + current_user.name,vector<string>(1,"QUIT"));
+            endwin();
             exit(-1);
         }
         else if(cmd[0] == "listchannels")
