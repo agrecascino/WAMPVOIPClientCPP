@@ -97,13 +97,19 @@ public:
     {
         if(lines > messages.size())
             lines = messages.size();
-        for(size_t l = messages.size() - 1 ;l < (messages.size() - 1) - lines;l--)
+        if(messages.size() == 0)
         {
+            return;
+        }
+        size_t l = messages.size() - 1 ;
+        do{
             int output_message = func(messages[l]);
             if(output_message)
                 wprintw(vin,string("<" + messages[l].name + ">" + " " + messages[l].message + "\n").c_str());
             wrefresh(vin);
-        }
+            l--;
+        }while(l > (messages.size() - 1) - lines);
+
     }
 
     void writeOutLines(size_t lines)
@@ -145,7 +151,7 @@ void getline(string &str, bool display_name = true)
     while(true)
     {
         int i = wgetch(cmd);
-        if((i == 127) && str.size() != 0)
+        if((i == 127) || (i == 8) && str.size() != 0)
         {
             str.pop_back();
             wdelch(cmd);
@@ -154,7 +160,7 @@ void getline(string &str, bool display_name = true)
             wrefresh(cmd);
             continue;
         }
-        else if(i == 127 && str.size() == 0)
+        else if((i == 127) || (i == 8) && str.size() == 0)
         {
             continue;
         }
@@ -184,6 +190,7 @@ void publish_to_channel(string channame,vector<string> arguments)
 
         if(arg.size() >= 181)
         {
+            wprintw(vin,"Splitting message.\n");
             vector<string> enc;
             enc.push_back(arg);
             while(enc[enc.size() - 1].size() >= 181)
@@ -200,7 +207,6 @@ void publish_to_channel(string channame,vector<string> arguments)
                     wrefresh(vin);
                 }
                 string encrypted_rsa(encrypted_out,encrypted_out + outlen);
-                wprintw(vin,string(base_64_encode(encrypted_rsa) + "\n").c_str());
                 enc[i] = base_64_encode(encrypted_rsa);
                 outlen = 512;
             }
@@ -213,7 +219,6 @@ void publish_to_channel(string channame,vector<string> arguments)
             wrefresh(vin);
         }
         string encrypted_rsa(encrypted_out,encrypted_out + outlen);
-        wprintw(vin,string(base_64_encode(encrypted_rsa) + "\n").c_str());
         base64_encrypted_arguments.push_back(base_64_encode(encrypted_rsa));
         delete[] encrypted_out;
     }
@@ -290,6 +295,10 @@ void process_command(const autobahn::wamp_event& event)
 
         }catch(const std::exception &e)
         {
+            //TODO: crash and burn here
+            wprintw(vin,"Error converting to string.\nYou really shouldn't see this. Exiting immediately!!!!!!!!1\n");
+            wrefresh(vin);
+            exit(-1);
         }
 
     }
@@ -317,25 +326,35 @@ void process_command(const autobahn::wamp_event& event)
             unsigned long outlen = 512;
             unsigned char *output = new unsigned char[512];
             int val = 0;
-
+            //wprintw(vin,"Decrypting...\n");
+            //wrefresh(vin);
             rsa_decrypt_key_ex((unsigned char*)(void*)argument.c_str(),argument.size(),output,&outlen,NULL,NULL,0,LTC_PKCS_1_V1_5,&val,&key);
             arguments[0][i] = string(output,output + outlen);
+            //wprintw(vin,"Decrypted.\n");
+            //wrefresh(vin);
         }
     }
     for(size_t i = 0;i < arguments[0].size();i++)
     {
+        //wprintw(vin,string(arguments[0][i] + "\n").c_str());
+        //wrefresh(vin);
         if(arguments[0][i] == "\xffSM")
         {
             if((((int)i - 1) == -1) || (((int)i + 1) >= arguments[0].size()))
             {
+                wprintw(vin,"Message corrupt.\n");
+                wrefresh(vin);
                 return;
             }
             arguments[0][i - 1] = arguments[0][i - 1] + arguments[0][i + 1];
             arguments[0].erase(arguments[0].begin() + (i + 1));
             arguments[0].erase(arguments[0].begin() + i);
         }
+
     }
     if(arguments[0][0] == ":"){
+        //wprintw(vin,"Entered response block.\n");
+        //wrefresh(vin);
         if(arguments[0][1] == "CHANUSERNAMES"){
             for(size_t i = 3; i < arguments[0].size();i++)
             {
@@ -384,6 +403,8 @@ void process_command(const autobahn::wamp_event& event)
             return;
         }
         if(arguments[0][1] == "MESSAGE"){
+            //wprintw(vin,"Entered message block.\n");
+            //wrefresh(vin);
             logger.addMessage(Message(arguments[0][3],arguments[0][2],arguments[0][4]));
             logger.writeOutLines(1);
             return;
