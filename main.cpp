@@ -151,7 +151,7 @@ void getline(string &str, bool display_name = true)
     while(true)
     {
         int i = wgetch(cmd);
-        if((i == 127) || (i == 8) && str.size() != 0)
+        if(((i == 127) || (i == 8)) && str.size() != 0)
         {
             str.pop_back();
             wdelch(cmd);
@@ -283,10 +283,10 @@ void audio_play(const autobahn::wamp_event& event)
 volatile int tickctr = 0;
 void process_command(const autobahn::wamp_event& event)
 {
-    tickctr++;
-    wprintw(vin,itoa(tickctr,10));
-    wprintw(vin,"\n");
-    wrefresh(vin);
+    //tickctr++;
+    //wprintw(vin,itoa(tickctr,10));
+    //wprintw(vin,"\n");
+    //wrefresh(vin);
     vector<vector<string>> arguments;
     for(unsigned int i = 0;i < event.number_of_arguments();i++)
     {
