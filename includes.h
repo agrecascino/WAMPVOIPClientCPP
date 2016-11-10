@@ -15,6 +15,7 @@
 #include <AL/al.h>
 #include <AL/alc.h>
 #include <AL/alut.h>
+#include <cstdlib>
 #include <tuple>
 #include <autobahn/autobahn.hpp>
 #include <autobahn/wamp_subscription.hpp>
@@ -22,6 +23,8 @@
 #include <thread>
 #include <signal.h>
 #include <boost/any.hpp>
+#include <opus/opusfile.h>
+#include <vorbis/vorbisfile.h>
 #include <ncurses.h>
 typedef websocketpp::client<websocketpp::config::asio_client> client;
 
@@ -30,6 +33,8 @@ rsa_key serv_pub;
 ALuint buffer, source;
 WINDOW *vin;
 WINDOW *cmd;
+OggVorbis_File vf;
+FILE *vfile;
 #define MIXER_AUDIO_16BITS_STEREO 1
 #define MIXER_AUDIO_8BITS_STEREO  2
 #define MIXER_AUDIO_16BITS_MONO   3

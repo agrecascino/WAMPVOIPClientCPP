@@ -160,7 +160,7 @@ void getline(string &str, bool display_name = true)
             wrefresh(cmd);
             continue;
         }
-        else if((i == 127) || (i == 8) && str.size() == 0)
+        else if(((i == 127) || (i == 8)) && str.size() == 0)
         {
             continue;
         }
@@ -239,17 +239,22 @@ void audio_encode()
     int val;
     while(true)
     {
-        alGetSourcei(source, AL_BUFFERS_PROCESSED, &val);
-        if(val <= 0)
-            continue;
-        alcGetIntegerv(device, ALC_CAPTURE_SAMPLES, 1, &val);
-        if(val > 1920)
-            continue;
+        //alcCaptureStart(device);
+        //alGetSourcei(source, AL_BUFFERS_PROCESSED, &val);
+        //if(val <= 0)
+        //    continue;
+        //alcGetIntegerv(device, ALC_CAPTURE_SAMPLES, 1, &val);
+        //if(val > 1920)
+        //    continue;
+
         short data[1920];
-        alcCaptureStart(device);
+        int c = ov_read(&vf,(char*)(void*)data,3840,0,2,1,NULL);
+        ALint sample;
+        //alcCaptureSamples(device,(ALCvoid *)buffer,1920);
         unsigned char packet[4*1276];
         int nbBytes = opus_encode(encoder,data,1920,packet,4*1276);
         vector<unsigned char> packt(packet,packet + nbBytes);
+
 
         vector<vector<unsigned char>> packtpackt;
         packtpackt.push_back(packt);
@@ -429,6 +434,10 @@ void process_command(const autobahn::wamp_event& event)
 
 int main(void)
 {
+    vfile = fopen("fabetik.ogg","rb");
+    ov_open_callbacks(vfile,&vf,NULL,0,OV_CALLBACKS_DEFAULT);
+
+    //opusfile = op_open_file("fabetik.opus",NULL);
     alutInit(0,NULL);
     int err;
     device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_STEREO16, 1920);
