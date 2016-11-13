@@ -11,6 +11,6 @@ HEADERS += \
     timer.h
 
 DEFINES += LTM_DESC
-unix|win32: LIBS += -lboost_system -lboost_thread -lssl -lopus -lvorbisfile -lopusfile -lncurses -lalut -lopenal -lportaudio -lcrypto -lpthread -lgmp -ltomcrypt
+unix|win32: LIBS += -lboost_system -lboost_thread -lboost_random -lssl -lopus -lvorbisfile -lncurses -lalut -lopenal -lcrypto -lpthread -lgmp -ltomcrypt
 
 QMAKE_CXXFLAGS += -std=c++14

@@ -1,5 +1,9 @@
 #ifndef INCLUDES_H
 #define INCLUDES_H
+#define BOOST_THREAD_PROVIDES_FUTURE
+#define BOOST_THREAD_PROVIDES_FUTURE_CONTINUATION
+
+#include <boost/thread/future.hpp>
 #include <boost/asio.hpp>
 #include <websocketpp/config/asio_no_tls_client.hpp>
 #include <websocketpp/client.hpp>
@@ -21,20 +25,25 @@
 #include <autobahn/wamp_subscription.hpp>
 #include <tomcrypt.h>
 #include <thread>
+#include <mutex>
+#include <time.h>
 #include <signal.h>
 #include <boost/any.hpp>
-#include <opus/opusfile.h>
+//#include <opus/opusfile.h>
 #include <vorbis/vorbisfile.h>
 #include <ncurses.h>
 typedef websocketpp::client<websocketpp::config::asio_client> client;
-
+#ifdef LTC_LTC_PKCS_1_V1_5
+#define LTC_PKCS_1_V1_5 LTC_LTC_PKCS_1_V1_5
+#endif
 rsa_key key;
 rsa_key serv_pub;
-ALuint buffer, source;
 WINDOW *vin;
 WINDOW *cmd;
 OggVorbis_File vf;
 FILE *vfile;
+std::vector<char> oggdec;
+std::mutex mtx;
 #define MIXER_AUDIO_16BITS_STEREO 1
 #define MIXER_AUDIO_8BITS_STEREO  2
 #define MIXER_AUDIO_16BITS_MONO   3
