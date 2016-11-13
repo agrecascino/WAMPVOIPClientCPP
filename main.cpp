@@ -12,6 +12,7 @@ struct Message {
     string name;
     string message;
 };
+
 struct DataWithSampleTicks
 {
     DataWithSampleTicks(int tick,int mintick,vector<short> audio)
@@ -25,67 +26,7 @@ struct DataWithSampleTicks
     int minutetick;
     vector<short> data;
 };
-/*
-class Mixer {
-public:
-    Mixer()
-    {
-        alutInit(0,NULL);
-        alGenSources(1,&source);
-        signal(SIGALRM,incrementTick);
-        ualarm(0,666);
-    }
-    template <typename T>
-    int commitNewDataToStream(vector<T> audiodata, int audiotype)
-    {
-        if(audiotype == MIXER_AUDIO_16BITS_STEREO)
-        {
-           streams.push_back(DataWithSampleTicks(sampleticks,minuteticks,vector<short>(audiodata)));
-        }
-        else
-        {
-            return -1;
-        }
-    }
-    static void incrementTick(int signal)
-    {
-        Mixer::sampleticks += 32;
-        if(Mixer::sampleticks > 48000)
-        {
-            Mixer::minuteticks++;
-            Mixer::sampleticks = 0;
-        }
-    }
 
-    int emmitBufferContentsToStream(){
-        vector<short> mixed_audio_data;
-        mixed_audio_data.reserve(sampleticks + (minuteticks*48000));
-        for(DataWithSampleTicks audio : streams)
-        {
-            vector<short> i = audio.data;
-            for(int k = audio.sampletick;k < i.size();k++)
-            {
-                if(k < mixed_audio_data.size())
-                {
-                    mixed_audio_data[k] = fmax((int)(mixed_audio_data[k]/2) + (i[k]/2),32768);
-                }
-                else
-                {
-                    mixed_audio_data.push_back(i[k]);
-                }
-            }
-        }
-        streams.clear();
-    }
-
-private:
-    static std::atomic<int> minuteticks;
-    static std::atomic<int> sampleticks;
-    vector<DataWithSampleTicks> streams;
-    ALuint buffer, source;
-};
-Mixer mixer;
-*/
 class ChatLogger {
 public:
     void addMessage(Message msg)
@@ -122,15 +63,13 @@ private:
 };
 
 struct RemoteUser {
-    RemoteUser(string name_temp,autobahn::wamp_subscription subscription_temp)
+    RemoteUser(string name_temp)
     {
         name = name_temp;
-        subscription = subscription_temp;
-
     }
-
     string name;
-    autobahn::wamp_subscription subscription;
+    ALuint buffer, source;
+
 };
 
 struct User {
@@ -234,9 +173,11 @@ void infinite_ping_loop()
 }
 thread *t;
 thread *t2;
+//ALuint buffer, source;
+ALint state;
 void audio_encode()
 {
-    int val;
+    size_t val = 0;
     while(true)
     {
         //alcCaptureStart(device);
@@ -247,45 +188,64 @@ void audio_encode()
         //if(val > 1920)
         //    continue;
 
-        short data[1920];
-        int c = ov_read(&vf,(char*)(void*)data,3840,0,2,1,NULL);
-        ALint sample;
+
+        //ALint sample;
         //alcCaptureSamples(device,(ALCvoid *)buffer,1920);
-        unsigned char packet[4*1276];
-        int nbBytes = opus_encode(encoder,data,1920,packet,4*1276);
+        unsigned char packet[4*1440*2];
+        int nbBytes = opus_encode(encoder,(const short *)&oggdec[val],2880,packet,4*1440*2);
         vector<unsigned char> packt(packet,packet + nbBytes);
-
-
+        val += 2880*4;
+        if(val > oggdec.size())
+        {
+            val = 0;
+        }
         vector<vector<unsigned char>> packtpackt;
         packtpackt.push_back(packt);
-        session->publish("com.audiodata." + current_user.name,packtpackt);
-        alcCaptureStop(device);
+        for(RemoteUser user : current_user.channelusers)
+        {
+            if(user.name == current_user.name)
+                continue;
+            session->call("com.audiorpc." + user.name,std::make_tuple(current_user.name,packtpackt));
+        }
+        //session->publish("com.audiodata." + current_user.name,packtpackt);
+        //alcCaptureStop(device);
+        //this_thread::sleep_for(chrono::milliseconds(40));
     }
 }
 
-void audio_play(const autobahn::wamp_event& event)
+void audio_play(const autobahn::wamp_invocation& event)
 {
+    mtx.lock();
     vector<unsigned char> packet;
+    string name;
     try{
-        packet = event.argument<vector<unsigned char>>(0);
+        name = event->argument<string>(0);
+        packet = event->argument<vector<unsigned char>>(1);
 
     }catch(const std::exception &e)
+
     {
     }
-    short output[4*1276];
+    short output[4*1440*2];
     //wprintw(vin,"Attempting to play audio...");
-    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,4*1276,0);
+    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,4*1440*2,0);
     //wprintw(vin, frame_size);
-    ALuint buffer, source;
     alGenSources(1,&source);
     alGenBuffers(1,&buffer);
-
     alBufferData(buffer,AL_FORMAT_STEREO16,output,frame_size,48000);
-    alSourceQueueBuffers(source,1,&buffer);
+    alSourcei(source,AL_BUFFER,buffer);
     alSourcePlay(source);
+    do {
+        // Query the state of the souce
 
+        alGetSourcei(source, AL_SOURCE_STATE, &state);
+
+    } while (state != AL_STOPPED);
+    alDeleteSources(1, &source);
+    alDeleteBuffers(1, &buffer);
+    mtx.unlock();
 }
-volatile int tickctr = 0;
+
 void process_command(const autobahn::wamp_event& event)
 {
     //tickctr++;
@@ -322,6 +282,7 @@ void process_command(const autobahn::wamp_event& event)
             t = new thread(infinite_ping_loop);
             t->detach();
             t2->detach();
+            session->provide("com.audiorpc." + current_user.name,audio_play);
             delete[] nonb64key;
         }
     }
@@ -363,18 +324,7 @@ void process_command(const autobahn::wamp_event& event)
         if(arguments[0][1] == "CHANUSERNAMES"){
             for(size_t i = 3; i < arguments[0].size();i++)
             {
-                autobahn::wamp_subscription subscription;
-                session->subscribe("com.audiodata." + arguments[0][i],&audio_play).then([&] (boost::future<autobahn::wamp_subscription> subscribed)
-                {
-                    try {
-                        subscription = subscribed.get();
-                    }
-                    catch (const std::exception& e) {
-                        io.stop();
-                        return;
-                    } });
-                current_user.channelusers.push_back(RemoteUser(arguments[0][i],subscription));
-                session->subscribe("com.audiodata." + arguments[0][i],&audio_play);
+                current_user.channelusers.push_back(RemoteUser(arguments[0][i]));
                 wprintw(vin,string("Channel user: " + arguments[0][i] + "\n").c_str());
                 wrefresh(vin);
             }
@@ -383,18 +333,8 @@ void process_command(const autobahn::wamp_event& event)
 
         if(arguments[0][1] == "NEWCHANUSER"){
 
-            autobahn::wamp_subscription subscription;
-            session->subscribe("com.audiodata." + arguments[0][3],&audio_play).then([&] (boost::future<autobahn::wamp_subscription> subscribed)
-            {
-                try {
-                    subscription = subscribed.get();
-                }
-                catch (const std::exception& e) {
-                    io.stop();
-                    return;
-                } });
-            current_user.channelusers.push_back(RemoteUser(arguments[0][3],subscription));
-            session->subscribe("com.audiodata." + arguments[0][3],&audio_play);
+
+            current_user.channelusers.push_back(RemoteUser(arguments[0][3]));
             wprintw(vin,string("New channel user: " + arguments[0][3] + "\n").c_str());
             wrefresh(vin);
             return;
@@ -434,11 +374,24 @@ void process_command(const autobahn::wamp_event& event)
 
 int main(void)
 {
-    vfile = fopen("fabetik.ogg","rb");
-    ov_open_callbacks(vfile,&vf,NULL,0,OV_CALLBACKS_DEFAULT);
-
-    //opusfile = op_open_file("fabetik.opus",NULL);
+    srand(time(NULL));
     alutInit(0,NULL);
+    vfile = fopen("x14_haista_poks.ogg","rb");
+    ov_open_callbacks(vfile,&vf,NULL,0,OV_CALLBACKS_DEFAULT);
+    char arr[4096];
+    int bytes = 0;
+    do {
+
+      // Read up to a buffer's worth of decoded sound data
+
+      bytes = ov_read(&vf, arr, 4096, 0, 2, 1, NULL);
+
+      // Append to end of buffer
+
+      oggdec.insert(oggdec.end(), arr, arr + bytes);
+
+    } while (bytes > 0);
+    //opusfile = op_open_file("fabetik.opus",NULL);
     int err;
     device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_STEREO16, 1920);
     ltc_mp = ltm_desc;
@@ -472,9 +425,15 @@ int main(void)
     client ws_client;
     ws_client.init_asio(&io);
     string uri;
+    bool testmode= false;
     wprintw(vin,string("Enter your WAMP server uri.\n").c_str());
     wrefresh(vin);
     getline(uri,false);
+    if(uri == "test")
+    {
+        uri = "ws://127.0.0.1:8080/ws";
+        testmode = true;
+    }
     auto transport = make_shared<autobahn::wamp_websocketpp_websocket_transport<websocketpp::config::asio_client>>(ws_client,uri,false);
 
     transport->attach(static_pointer_cast<autobahn::wamp_transport_handler>(session));
@@ -510,7 +469,13 @@ int main(void)
 }
             wprintw(vin,"Enter your username:\n");
             wrefresh(vin);
+            if(testmode)
+                goto coolkids;
             getline(current_user.name,false);
+            goto dosomething;
+            coolkids:
+            current_user.name = "test" + string(itoa(rand() % 20000,10));
+            dosomething:
             session->subscribe("com.audioctl." + current_user.name,&process_command);
             session->publish("com.audioctl.main", std::make_tuple(std::string("NICK"),std::string(current_user.name),base64key));
             wclear(vin);
@@ -570,10 +535,6 @@ int main(void)
                     send_to_client.push_back("LEAVECHANNEL");
                     send_to_client.push_back(cmd[1]);
                     current_user.channel = "";
-                    for(RemoteUser user : current_user.channelusers)
-                    {
-                        session->unsubscribe(user.subscription);
-                    }
                     current_user.channelusers.clear();
                     publish_to_channel("com.audioctl." + current_user.name,send_to_client);
                 }
