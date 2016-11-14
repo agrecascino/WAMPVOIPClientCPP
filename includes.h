@@ -40,6 +40,7 @@ rsa_key key;
 rsa_key serv_pub;
 WINDOW *vin;
 WINDOW *cmd;
+WINDOW *dbg;
 OggVorbis_File vf;
 FILE *vfile;
 std::vector<char> oggdec;

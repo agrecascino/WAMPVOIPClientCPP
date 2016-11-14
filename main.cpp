@@ -66,10 +66,16 @@ struct RemoteUser {
     RemoteUser(string name_temp)
     {
         name = name_temp;
+        alGenSources(1,&source);
+        alGenBuffers(1,&buffer);
     }
     string name;
     ALuint buffer, source;
-
+    ~RemoteUser()
+    {
+        alDeleteBuffers(1, &buffer);
+        alDeleteSources(1, &source);
+    }
 };
 
 struct User {
@@ -174,7 +180,6 @@ void infinite_ping_loop()
 thread *t;
 thread *t2;
 //ALuint buffer, source;
-ALint state;
 void audio_encode()
 {
     size_t val = 0;
@@ -212,38 +217,48 @@ void audio_encode()
         //this_thread::sleep_for(chrono::milliseconds(40));
     }
 }
-
+bool ftick = false;
 void audio_play(const autobahn::wamp_invocation& event)
 {
-    mtx.lock();
-    vector<unsigned char> packet;
+    ALint state;
+    //mtx.lock();
     string name;
-    try{
+    vector<unsigned char> packet;
+    try {
         name = event->argument<string>(0);
-        packet = event->argument<vector<unsigned char>>(1);
+        packet = event->argument<vector<vector<unsigned char>>>(1)[0];
 
-    }catch(const std::exception &e)
-
-    {
+    }catch(const std::exception &e) {
+        //return;
+        exit(-1);
     }
     short output[4*1440*2];
+    //wclear(dbg);
+    //wprintw(dbg,string(string(itoa(packet.size(),10)) + string("\n")).c_str());
+    //wrefresh(dbg);
     //wprintw(vin,"Attempting to play audio...");
     int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,4*1440*2,0);
     //wprintw(vin, frame_size);
-    alGenSources(1,&source);
-    alGenBuffers(1,&buffer);
-    alBufferData(buffer,AL_FORMAT_STEREO16,output,frame_size,48000);
-    alSourcei(source,AL_BUFFER,buffer);
-    alSourcePlay(source);
-    do {
-        // Query the state of the souce
+    RemoteUser *userptr = NULL;
+    for(RemoteUser &user : current_user.channelusers)
+        if(user.name == name)
+            userptr = &user;
+    if(userptr == NULL)
+        return;
+    //wprintw(dbg, string(string(" ") + string(itoa(frame_size,10)) + " bq\n").c_str());
+    //wrefresh(dbg);
+    if(!ftick){
+        alSourceUnqueueBuffers(userptr->source, 1, &userptr->buffer);
+        ftick = true;
+    }
+    alBufferData(userptr->buffer,AL_FORMAT_STEREO16,output,frame_size,48000);
+    alSourceQueueBuffers(userptr->source,1,&userptr->buffer);
+    alGetSourcei(userptr->source, AL_SOURCE_STATE, &state);
+    //alSourcei(userptr->source,AL_BUFFER,userptr->buffer);
+    if(state != AL_PLAYING)
+        alSourcePlay(userptr->source);
+    //mtx.unlock();
 
-        alGetSourcei(source, AL_SOURCE_STATE, &state);
-
-    } while (state != AL_STOPPED);
-    alDeleteSources(1, &source);
-    alDeleteBuffers(1, &buffer);
-    mtx.unlock();
 }
 
 void process_command(const autobahn::wamp_event& event)
@@ -403,6 +418,7 @@ int main(void)
     noecho();
     vin = newwin(LINES - 1,COLS,0,0);
     cmd = newwin(1,COLS,LINES - 1,0);
+    //dbg = newwin(1,COLS,0,0);
     scrollok(vin, TRUE);
     wrefresh(vin);
     register_prng(&sprng_desc);
