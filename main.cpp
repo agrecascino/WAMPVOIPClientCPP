@@ -67,13 +67,14 @@ struct RemoteUser {
     {
         name = name_temp;
         alGenSources(1,&source);
-        alGenBuffers(1,&buffer);
+        //alGenBuffers(2,&buffer[0]);
     }
     string name;
-    ALuint buffer, source;
+    vector<ALuint> buffer;
+    ALuint source;
     ~RemoteUser()
     {
-        alDeleteBuffers(1, &buffer);
+        //alDeleteBuffers(2, &buffer[0]);
         alDeleteSources(1, &source);
     }
 };
@@ -214,7 +215,7 @@ void audio_encode()
         }
         //session->publish("com.audiodata." + current_user.name,packtpackt);
         //alcCaptureStop(device);
-        //this_thread::sleep_for(chrono::milliseconds(40));
+        this_thread::sleep_for(chrono::milliseconds(1));
     }
 }
 bool ftick = false;
@@ -233,10 +234,6 @@ void audio_play(const autobahn::wamp_invocation& event)
         exit(-1);
     }
     short output[4*1440*2];
-    //wclear(dbg);
-    //wprintw(dbg,string(string(itoa(packet.size(),10)) + string("\n")).c_str());
-    //wrefresh(dbg);
-    //wprintw(vin,"Attempting to play audio...");
     int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,4*1440*2,0);
     //wprintw(vin, frame_size);
     RemoteUser *userptr = NULL;
@@ -245,20 +242,25 @@ void audio_play(const autobahn::wamp_invocation& event)
             userptr = &user;
     if(userptr == NULL)
         return;
-    //wprintw(dbg, string(string(" ") + string(itoa(frame_size,10)) + " bq\n").c_str());
-    //wrefresh(dbg);
-    if(!ftick){
-        alSourceUnqueueBuffers(userptr->source, 1, &userptr->buffer);
-        ftick = true;
+    alGetSourcei(userptr->source, AL_BUFFERS_PROCESSED, &state);
+    if(state == 2)
+    {
+        alSourceUnqueueBuffers(userptr->source,2,userptr->buffer.data());
+        userptr->buffer.erase(userptr->buffer.begin(),userptr->buffer.begin() + 2);
+        alSourceStop(userptr->source);
     }
-    alBufferData(userptr->buffer,AL_FORMAT_STEREO16,output,frame_size,48000);
-    alSourceQueueBuffers(userptr->source,1,&userptr->buffer);
+    userptr->buffer.push_back(ALuint());
+    alGenBuffers(1,&userptr->buffer.back());
+    
+    //if(!ftick)
+    //    ftick = true;
+    //else
+    //    alSourceUnqueueBuffers(userptr->source, 1, &userptr->buffer[1]);
+    alBufferData(userptr->buffer.back(),AL_FORMAT_STEREO16,output,frame_size,48000);
+    alSourceQueueBuffers(userptr->source,1,&userptr->buffer.back());
     alGetSourcei(userptr->source, AL_SOURCE_STATE, &state);
-    //alSourcei(userptr->source,AL_BUFFER,userptr->buffer);
     if(state != AL_PLAYING)
         alSourcePlay(userptr->source);
-    //mtx.unlock();
-
 }
 
 void process_command(const autobahn::wamp_event& event)
@@ -391,7 +393,7 @@ int main(void)
 {
     srand(time(NULL));
     alutInit(0,NULL);
-    vfile = fopen("x14_haista_poks.ogg","rb");
+    vfile = fopen("fabetik.ogg","rb");
     ov_open_callbacks(vfile,&vf,NULL,0,OV_CALLBACKS_DEFAULT);
     char arr[4096];
     int bytes = 0;
