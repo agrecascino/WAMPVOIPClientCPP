@@ -215,7 +215,7 @@ void audio_encode()
         }
         //session->publish("com.audiodata." + current_user.name,packtpackt);
         //alcCaptureStop(device);
-        this_thread::sleep_for(chrono::milliseconds(1));
+        this_thread::sleep_for(chrono::milliseconds(65));
     }
 }
 bool ftick = false;
@@ -243,11 +243,12 @@ void audio_play(const autobahn::wamp_invocation& event)
     if(userptr == NULL)
         return;
     alGetSourcei(userptr->source, AL_BUFFERS_PROCESSED, &state);
-    if(state == 2)
+    if(state > 0 && state <= userptr->buffer.size())
     {
-        alSourceUnqueueBuffers(userptr->source,2,userptr->buffer.data());
-        userptr->buffer.erase(userptr->buffer.begin(),userptr->buffer.begin() + 2);
         alSourceStop(userptr->source);
+        alSourceUnqueueBuffers(userptr->source,state,userptr->buffer.data());
+        alDeleteBuffers(state,&userptr->buffer[0]);
+        userptr->buffer.erase(userptr->buffer.begin(),userptr->buffer.begin() + state);
     }
     userptr->buffer.push_back(ALuint());
     alGenBuffers(1,&userptr->buffer.back());
@@ -260,7 +261,11 @@ void audio_play(const autobahn::wamp_invocation& event)
     alSourceQueueBuffers(userptr->source,1,&userptr->buffer.back());
     alGetSourcei(userptr->source, AL_SOURCE_STATE, &state);
     if(state != AL_PLAYING)
+    {
+        wprintw(vin,"Restarting source.\n");
+        wrefresh(vin);
         alSourcePlay(userptr->source);
+    }
 }
 
 void process_command(const autobahn::wamp_event& event)
