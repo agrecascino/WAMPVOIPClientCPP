@@ -89,6 +89,7 @@ struct User {
 ChatLogger logger;
 User current_user;
 
+
 void getline(string &str, bool display_name = true)
 {
     str = "";
@@ -181,6 +182,43 @@ void infinite_ping_loop()
 thread *t;
 thread *t2;
 //ALuint buffer, source;
+void err(int error_code){
+    int error;
+    int stack_depth = 0;
+
+    while((error = alGetError()) != AL_NO_ERROR)
+    {
+            stack_depth++;
+            switch(error)
+            {
+                case AL_INVALID_NAME:
+                    wprintw(vin,"Invalid name detected in openAL.\n");
+                    break;
+                case AL_INVALID_ENUM:
+                    wprintw(vin,"Invalid enum detected in openAL.\n");
+                    break;
+                case AL_INVALID_VALUE:
+                    wprintw(vin,"Invalid value detected in openAL\n");
+                    break;
+                case AL_OUT_OF_MEMORY:
+                    wprintw(vin,"Out of memory detected in openAL.\n");
+                    break;
+                case AL_INVALID_OPERATION:
+                    wprintw(vin,"Invalid operation detected in openAL.\n");
+                    break;
+                default:
+                    wprintw(vin,string("Something broke, hex error code: " + string(itoa(error,16)) + string("\n")).c_str());
+                    break;
+            }
+    }
+    if(stack_depth > 0)
+    {
+        wprintw(vin,string("Arbitrary error code: " + string(to_string(error_code)) + string("\n")).c_str());
+        wrefresh(vin);
+        exit(-1);
+    }
+}
+
 void audio_encode()
 {
     size_t val = 0;
@@ -219,6 +257,7 @@ void audio_encode()
     }
 }
 bool ftick = false;
+int tick = 0;
 void audio_play(const autobahn::wamp_invocation& event)
 {
     ALint state;
@@ -242,9 +281,12 @@ void audio_play(const autobahn::wamp_invocation& event)
             userptr = &user;
     if(userptr == NULL)
         return;
+    err(tick);
     alGetSourcei(userptr->source, AL_BUFFERS_PROCESSED, &state);
+    //err(tick);
     if(state > 0 && state <= userptr->buffer.size())
     {
+
         alSourceStop(userptr->source);
         alSourceUnqueueBuffers(userptr->source,state,userptr->buffer.data());
         alDeleteBuffers(state,&userptr->buffer[0]);
@@ -266,6 +308,7 @@ void audio_play(const autobahn::wamp_invocation& event)
         wrefresh(vin);
         alSourcePlay(userptr->source);
     }
+    tick++;
 }
 
 void process_command(const autobahn::wamp_event& event)
@@ -415,7 +458,7 @@ int main(void)
     } while (bytes > 0);
     //opusfile = op_open_file("fabetik.opus",NULL);
     int err;
-    device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_STEREO16, 1920);
+    //device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_STEREO16, 1920);
     ltc_mp = ltm_desc;
     encoder = opus_encoder_create(48000,2,OPUS_APPLICATION_AUDIO,&err);
     decoder = opus_decoder_create(48000,2,&err);
