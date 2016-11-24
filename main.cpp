@@ -13,20 +13,6 @@ struct Message {
     string message;
 };
 
-struct DataWithSampleTicks
-{
-    DataWithSampleTicks(int tick,int mintick,vector<short> audio)
-    {
-        sampletick = tick;
-        minutetick = mintick;
-        data = audio;
-    }
-
-    int sampletick;
-    int minutetick;
-    vector<short> data;
-};
-
 class ChatLogger {
 public:
     void addMessage(Message msg)
@@ -75,7 +61,7 @@ struct RemoteUser {
     ~RemoteUser()
     {
         //alDeleteBuffers(2, &buffer[0]);
-        alDeleteSources(1, &source);
+        //alDeleteSources(1, &source);
     }
 };
 
@@ -218,42 +204,57 @@ void err(int error_code){
         exit(-1);
     }
 }
-
+ALuint b,s;
 void audio_encode()
 {
     size_t val = 0;
+    alGenSources(1,&s);
+    short buffer[2880*2];
+    alcCaptureStart(device);
     while(true)
     {
-        //alcCaptureStart(device);
-        //alGetSourcei(source, AL_BUFFERS_PROCESSED, &val);
-        //if(val <= 0)
-        //    continue;
-        //alcGetIntegerv(device, ALC_CAPTURE_SAMPLES, 1, &val);
-        //if(val > 1920)
-        //    continue;
+        ALint samples;
+        again:
+        alcGetIntegerv(device, ALC_CAPTURE_SAMPLES, 1, &samples);
+        if(samples < 480)
+            goto again;
 
 
         //ALint sample;
-        //alcCaptureSamples(device,(ALCvoid *)buffer,1920);
-        unsigned char packet[4*1440*2];
-        int nbBytes = opus_encode(encoder,(const short *)&oggdec[val],2880,packet,4*1440*2);
-        vector<unsigned char> packt(packet,packet + nbBytes);
-        val += 2880*4;
+        alcCaptureSamples(device,(ALCvoid *)buffer,480);
+        unsigned char packet[2880];
+        //int nbBytes = opus_encode(encoder,(const short *)&buffer,480,packet,2880);
+        //vector<unsigned char> packt(packet,packet + nbBytes);
+
         if(val > oggdec.size())
         {
             val = 0;
         }
-        vector<vector<unsigned char>> packtpackt;
-        packtpackt.push_back(packt);
+
+        alGenBuffers(1,&b);
+        alBufferData(b,AL_FORMAT_MONO16,&buffer[0],480*2,24000);
+        alSourcei(s,AL_BUFFER,b);
+        alSourcePlay(s);
+        ALint state;
+        alGetSourcei(s,AL_SOURCE_STATE,&state);
+        while(state == AL_PLAYING)
+        {
+            alGetSourcei(s,AL_SOURCE_STATE,&state);
+        }
+        alDeleteBuffers(1,&b);
+
+        val += 2880*2;
+        //vector<vector<unsigned char>> packtpackt;
+        //packtpackt.push_back(packt);
         for(RemoteUser user : current_user.channelusers)
         {
             if(user.name == current_user.name)
                 continue;
-            session->call("com.audiorpc." + user.name,std::make_tuple(current_user.name,packtpackt));
+            //session->call("com.audiorpc." + user.name,std::make_tuple(current_user.name,packtpackt));
         }
         //session->publish("com.audiodata." + current_user.name,packtpackt);
         //alcCaptureStop(device);
-        this_thread::sleep_for(chrono::milliseconds(65));
+        //this_thread::sleep_for(chrono::milliseconds(59));
     }
 }
 bool ftick = false;
@@ -272,8 +273,8 @@ void audio_play(const autobahn::wamp_invocation& event)
         //return;
         exit(-1);
     }
-    short output[4*1440*2];
-    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,4*1440*2,0);
+    short output[2880*2];
+    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,480,0);
     //wprintw(vin, frame_size);
     RemoteUser *userptr = NULL;
     for(RemoteUser &user : current_user.channelusers)
@@ -282,16 +283,21 @@ void audio_play(const autobahn::wamp_invocation& event)
     if(userptr == NULL)
         return;
     err(tick);
+    //
+    mtx.lock();
     alGetSourcei(userptr->source, AL_BUFFERS_PROCESSED, &state);
     //err(tick);
     if(state > 0 && state <= userptr->buffer.size())
     {
 
-        alSourceStop(userptr->source);
+        //alSourceStop(userptr->source);
+        //alSourcei(userptr->source,AL_BUFFERS_PROCESSED,0);
         alSourceUnqueueBuffers(userptr->source,state,userptr->buffer.data());
         alDeleteBuffers(state,&userptr->buffer[0]);
         userptr->buffer.erase(userptr->buffer.begin(),userptr->buffer.begin() + state);
+
     }
+    mtx.unlock();
     userptr->buffer.push_back(ALuint());
     alGenBuffers(1,&userptr->buffer.back());
     
@@ -299,15 +305,17 @@ void audio_play(const autobahn::wamp_invocation& event)
     //    ftick = true;
     //else
     //    alSourceUnqueueBuffers(userptr->source, 1, &userptr->buffer[1]);
-    alBufferData(userptr->buffer.back(),AL_FORMAT_STEREO16,output,frame_size,48000);
+    alBufferData(userptr->buffer.back(),AL_FORMAT_MONO16,output,480,24000);
     alSourceQueueBuffers(userptr->source,1,&userptr->buffer.back());
     alGetSourcei(userptr->source, AL_SOURCE_STATE, &state);
+
     if(state != AL_PLAYING)
     {
-        wprintw(vin,"Restarting source.\n");
-        wrefresh(vin);
+        //wprintw(vin,"Restarting source.\n");
+        //wrefresh(vin);
         alSourcePlay(userptr->source);
     }
+    //
     tick++;
 }
 
@@ -441,7 +449,7 @@ int main(void)
 {
     srand(time(NULL));
     alutInit(0,NULL);
-    vfile = fopen("fabetik.ogg","rb");
+    vfile = fopen("foregone.ogg","rb");
     ov_open_callbacks(vfile,&vf,NULL,0,OV_CALLBACKS_DEFAULT);
     char arr[4096];
     int bytes = 0;
@@ -458,11 +466,11 @@ int main(void)
     } while (bytes > 0);
     //opusfile = op_open_file("fabetik.opus",NULL);
     int err;
-    //device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_STEREO16, 1920);
+    device = alcCaptureOpenDevice(NULL, 24000, AL_FORMAT_MONO16, 480);
     ltc_mp = ltm_desc;
-    encoder = opus_encoder_create(48000,2,OPUS_APPLICATION_AUDIO,&err);
-    decoder = opus_decoder_create(48000,2,&err);
-    err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(48000));
+    encoder = opus_encoder_create(24000,1,OPUS_APPLICATION_AUDIO,&err);
+    decoder = opus_decoder_create(24000,1,&err);
+    err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(24000));
     initscr();
     raw();
     noecho();
