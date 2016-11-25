@@ -204,7 +204,8 @@ void err(int error_code){
         exit(-1);
     }
 }
-ALuint b,s;
+ALuint s;
+vector<ALuint> b;
 void audio_encode()
 {
     size_t val = 0;
@@ -223,34 +224,44 @@ void audio_encode()
         //ALint sample;
         alcCaptureSamples(device,(ALCvoid *)buffer,480);
         unsigned char packet[2880];
-        //int nbBytes = opus_encode(encoder,(const short *)&buffer,480,packet,2880);
-        //vector<unsigned char> packt(packet,packet + nbBytes);
+        int nbBytes = opus_encode(encoder,(const short *)&buffer,480,packet,2880);
+        vector<unsigned char> packt(packet,packet + nbBytes);
 
-        if(val > oggdec.size())
-        {
-            val = 0;
-        }
+        //if(val > oggdec.size())
+        //{
+        //    val = 0;
+        //}
+        //ALint state;
+        //alGetSourcei(s, AL_BUFFERS_PROCESSED, &state);
+        //if(state > 0 && state <= b.size())
+        //{
+        //    alSourceUnqueueBuffers(s,state,b.data());
+        //    alDeleteBuffers(state,&b[0]);
+        //    b.erase(b.begin(),b.begin() + state);
 
-        alGenBuffers(1,&b);
-        alBufferData(b,AL_FORMAT_MONO16,&buffer[0],480*2,24000);
-        alSourcei(s,AL_BUFFER,b);
-        alSourcePlay(s);
-        ALint state;
-        alGetSourcei(s,AL_SOURCE_STATE,&state);
-        while(state == AL_PLAYING)
-        {
-            alGetSourcei(s,AL_SOURCE_STATE,&state);
-        }
-        alDeleteBuffers(1,&b);
+        //}
+        //b.push_back(ALuint());
+        //alGenBuffers(1,&b.back());
+        //alBufferData(b.back(),AL_FORMAT_MONO16,&buffer[0],480*2,48000);
+        //alSourceQueueBuffers(s,1,&b.back());
+        //alSourcePlay(s);
+        //alGetSourcei(s,AL_SOURCE_STATE,&state);
+        //if(state != AL_PLAYING)
+        //    alSourcePlay(s);
+        //while(state == AL_PLAYING)
+        //{
+        //    alGetSourcei(s,AL_SOURCE_STATE,&state);
+        //}
+        //alDeleteBuffers(1,&b);
 
-        val += 2880*2;
-        //vector<vector<unsigned char>> packtpackt;
-        //packtpackt.push_back(packt);
+        //val += 2880*2;
+        vector<vector<unsigned char>> packtpackt;
+        packtpackt.push_back(packt);
         for(RemoteUser user : current_user.channelusers)
         {
             if(user.name == current_user.name)
                 continue;
-            //session->call("com.audiorpc." + user.name,std::make_tuple(current_user.name,packtpackt));
+            session->call("com.audiorpc." + user.name,std::make_tuple(current_user.name,packtpackt));
         }
         //session->publish("com.audiodata." + current_user.name,packtpackt);
         //alcCaptureStop(device);
@@ -282,9 +293,9 @@ void audio_play(const autobahn::wamp_invocation& event)
             userptr = &user;
     if(userptr == NULL)
         return;
-    err(tick);
+    //err(tick);
     //
-    mtx.lock();
+    //mtx.lock();
     alGetSourcei(userptr->source, AL_BUFFERS_PROCESSED, &state);
     //err(tick);
     if(state > 0 && state <= userptr->buffer.size())
@@ -297,7 +308,7 @@ void audio_play(const autobahn::wamp_invocation& event)
         userptr->buffer.erase(userptr->buffer.begin(),userptr->buffer.begin() + state);
 
     }
-    mtx.unlock();
+    //mtx.unlock();
     userptr->buffer.push_back(ALuint());
     alGenBuffers(1,&userptr->buffer.back());
     
@@ -305,11 +316,14 @@ void audio_play(const autobahn::wamp_invocation& event)
     //    ftick = true;
     //else
     //    alSourceUnqueueBuffers(userptr->source, 1, &userptr->buffer[1]);
-    alBufferData(userptr->buffer.back(),AL_FORMAT_MONO16,output,480,24000);
+    alBufferData(userptr->buffer.back(),AL_FORMAT_MONO16,output,960,48000);
     alSourceQueueBuffers(userptr->source,1,&userptr->buffer.back());
     alGetSourcei(userptr->source, AL_SOURCE_STATE, &state);
-
-    if(state != AL_PLAYING)
+    if(tick == 1)
+    {
+        alSourcePlay(userptr->source);
+    }
+    if(state != AL_PLAYING && tick > 1)
     {
         //wprintw(vin,"Restarting source.\n");
         //wrefresh(vin);
@@ -408,7 +422,7 @@ void process_command(const autobahn::wamp_event& event)
 
 
             current_user.channelusers.push_back(RemoteUser(arguments[0][3]));
-            wprintw(vin,string("New channel user: " + arguments[0][3] + "\n").c_str());
+            wprintw(vin,string("[+] " + arguments[0][3] + "\n").c_str());
             wrefresh(vin);
             return;
         }
@@ -416,6 +430,8 @@ void process_command(const autobahn::wamp_event& event)
             for(size_t i = 0;i < current_user.channelusers.size();i++)
                 if(current_user.channelusers[i].name == arguments[0][3])
                 {
+                    wprintw(vin,string("[-] " + arguments[0][3] + "\n").c_str());
+                    wrefresh(vin);
                     current_user.channelusers.erase(current_user.channelusers.begin() + i);
                 }
             return;
@@ -449,7 +465,7 @@ int main(void)
 {
     srand(time(NULL));
     alutInit(0,NULL);
-    vfile = fopen("foregone.ogg","rb");
+    vfile = fopen("x14_haista_poks.ogg","rb");
     ov_open_callbacks(vfile,&vf,NULL,0,OV_CALLBACKS_DEFAULT);
     char arr[4096];
     int bytes = 0;
@@ -466,11 +482,11 @@ int main(void)
     } while (bytes > 0);
     //opusfile = op_open_file("fabetik.opus",NULL);
     int err;
-    device = alcCaptureOpenDevice(NULL, 24000, AL_FORMAT_MONO16, 480);
+    device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_MONO16, 480);
     ltc_mp = ltm_desc;
-    encoder = opus_encoder_create(24000,1,OPUS_APPLICATION_AUDIO,&err);
-    decoder = opus_decoder_create(24000,1,&err);
-    err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(24000));
+    encoder = opus_encoder_create(48000,1,OPUS_APPLICATION_AUDIO,&err);
+    decoder = opus_decoder_create(48000,1,&err);
+    err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(48000));
     initscr();
     raw();
     noecho();
@@ -478,6 +494,9 @@ int main(void)
     cmd = newwin(1,COLS,LINES - 1,0);
     //dbg = newwin(1,COLS,0,0);
     scrollok(vin, TRUE);
+    //start_color();
+    //init_pair(0, COLOR_RED, COLOR_BLUE);
+    //attron(0);
     wrefresh(vin);
     register_prng(&sprng_desc);
     if (rsa_make_key(NULL, find_prng("sprng"), 1536/8, 65537, &key) != CRYPT_OK) {
