@@ -19,6 +19,7 @@
 #include <AL/al.h>
 #include <AL/alc.h>
 #include <AL/alut.h>
+#include <map>
 #include <cstdlib>
 #include <tuple>
 #include <autobahn/autobahn.hpp>

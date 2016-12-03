@@ -69,6 +69,8 @@ struct User {
     string name = "not_connected";
     string channel;
     vector<RemoteUser> channelusers;
+    map<string,bool> nodeliver;
+    bool nodeliverall = false;
     vector<unsigned char> pubkey;
     vector<unsigned char> privkey;
 };
@@ -224,6 +226,8 @@ void audio_encode()
         //ALint sample;
         alcCaptureSamples(device,(ALCvoid *)buffer,480);
         unsigned char packet[2880];
+        if(current_user.nodeliverall)
+            continue;
         int nbBytes = opus_encode(encoder,(const short *)&buffer,480,packet,2880);
         vector<unsigned char> packt(packet,packet + nbBytes);
 
@@ -260,6 +264,8 @@ void audio_encode()
         for(RemoteUser user : current_user.channelusers)
         {
             if(user.name == current_user.name)
+                continue;
+            if(current_user.nodeliver[user.name])
                 continue;
             session->call("com.audiorpc." + user.name,std::make_tuple(current_user.name,packtpackt));
         }
@@ -444,7 +450,12 @@ void process_command(const autobahn::wamp_event& event)
             return;
 
         }
-
+        if(arguments[0][1] == "NODELIVER")
+        {
+            wprintw(vin,string(arguments[0][2] + " has muted themselves from you.\n").c_str());
+            wrefresh(vin);
+            return;
+        }
         if(arguments[0][1] == "CHANNAMES"){
             for(size_t i = 2; i <arguments[0].size();i++)
             {
@@ -637,6 +648,25 @@ int main(void)
                     wrefresh(vin);
                 }
                 continue;
+            }
+            else if(cmd[0] == "nodeliver")
+            {
+                wprintw(vin,string("Stopped sending audio to user: " + cmd[1] + "\n").c_str());
+                wrefresh(vin);
+                current_user.nodeliver[cmd[1]] = !current_user.nodeliver[cmd[1]];
+                vector<string> s;
+                s.push_back("NODELIVER");
+                s.push_back(cmd[1]);
+                publish_to_channel("com.audioctl." + current_user.name,s);
+            }
+            else if(cmd[0] == "nodeliverall")
+            {
+                wprintw(vin,"Muted self.\n");
+                wrefresh(vin);
+                current_user.nodeliverall = !current_user.nodeliverall;
+                vector<string> s;
+                s.push_back("NODELIVERALL");
+                publish_to_channel("com.audioctl." + current_user.name,s);
             }
         }
     }
