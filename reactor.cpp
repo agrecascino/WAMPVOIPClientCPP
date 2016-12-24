@@ -3,8 +3,6 @@
 Reactor::Reactor(string url, string username, int reactoridtmp, std::map<string, bool> options) : logger(display,reactoridtmp){
     reactorid = reactoridtmp;
     display.create_screen("reactor" + to_string(reactorid) + "_main");
-    display.switch_screen("reactor" + to_string(reactorid) + "_main",true);
-    display.print_to_screen("chat","Starting reactor: " + to_string(reactorid) + "\n");
     user.name = username;
     this->uri = url;
     int err;
@@ -41,6 +39,9 @@ Reactor::Reactor(Reactor &&other) : logger(display,reactorid) {
 }
 
 void Reactor::start() {
+    active = true;
+    display.switch_screen("reactor" + to_string(reactorid) + "_main",true);
+    display.print_to_screen("chat","Starting reactor: " + to_string(reactorid) + "\n");
     io_thread = thread(&Reactor::eventloop,this);
     io_thread.detach();
     this_thread::sleep_for(chrono::milliseconds(230));
@@ -64,54 +65,55 @@ void Reactor::eventloop() {
     ws_client.init_asio(&io);
     auto transport = make_shared<autobahn::wamp_websocketpp_websocket_transport<websocketpp::config::asio_client>>(ws_client,uri,false);
     transport->attach(static_pointer_cast<autobahn::wamp_transport_handler>(session));
-        boost::future<void> connect_future;
-        boost::future<void> start_future;
-        boost::future<void> join_future;
-        connect_future = transport->connect().then([&](boost::future<void> connected){
-                    try {
-                    connected.get();
-    } catch(const exception& e) {
-                io.stop();
-                return;
-    }
-                start_future = session->start().then([&](boost::future<void> started) {
-                try {
-                started.get();
-    }catch(const exception& e) {
+    boost::future<void> connect_future;
+    boost::future<void> start_future;
+    boost::future<void> join_future;
+    connect_future = transport->connect().then([&](boost::future<void> connected){
+            try {
+            connected.get();
+} catch(const exception& e) {
+            io.stop();
+            return;
+}
+            start_future = session->start().then([&](boost::future<void> started) {
+            try {
+            started.get();
+}catch(const exception& e) {
 
-                io.stop();
-                return;
-    }
+            io.stop();
+            return;
+}
 
-                join_future = session->join("realm1").then([&](boost::future<uint64_t> joined){
-                try {
+            join_future = session->join("realm1").then([&](boost::future<uint64_t> joined){
+            try {
 
-    }catch (const exception& e) {
-                io.stop();
-                return;
-    }
-                session->subscribe("com.audioctl." + user.name,std::bind(&Reactor::message_handler,this,std::placeholders::_1));
-                session->publish("com.audioctl.main", std::make_tuple(std::string("NICK"),std::string(user.name),base64key));
-                gettimeofday(&old_time,NULL);
-                while(true) {
-                    if(!reactormail.isEmpty()){
-                        if(internal_message_handler(reactormail.getMessage())) {
-                            //break;
-                        }
-                    }
-                    gettimeofday(&time,NULL);
-                    if(((time.tv_sec * 1000) - (old_time.tv_sec * 1000)) + (((float)time.tv_usec / 1000) - ((float)old_time.tv_usec / 1000)) > 3000)
-                    {
-                        publish_message("com.audioctl." + user.name,vector<string>(1,"PING"));
-                        gettimeofday(&old_time,NULL);
-                    }
-                    audio_dispatcher();
-                    this_thread::sleep_for(chrono::milliseconds(2));
-    }
+}catch (const exception& e) {
+            io.stop();
+            return;
+}
+            session->subscribe("com.audioctl." + user.name,std::bind(&Reactor::message_handler,this,std::placeholders::_1));
+            session->publish("com.audioctl.main", std::make_tuple(std::string("NICK"),std::string(user.name),base64key));
+            gettimeofday(&old_time,NULL);
+            while(true) {
+            if(!reactormail.isEmpty()){
+            if(internal_message_handler(reactormail.getMessage())) {
+
+            //break;
+}
+}
+            gettimeofday(&time,NULL);
+            if(((time.tv_sec * 1000) - (old_time.tv_sec * 1000)) + (((float)time.tv_usec / 1000) - ((float)old_time.tv_usec / 1000)) > 3000)
+    {
+            publish_message("com.audioctl." + user.name,vector<string>(1,"PING"));
+            gettimeofday(&old_time,NULL);
+}
+            audio_dispatcher();
+            this_thread::sleep_for(chrono::milliseconds(2));
+}
 
 
-    });
-    });
+});
+});
 });
 io.run();
 
@@ -122,6 +124,17 @@ int Reactor::internal_message_handler(string s) {
         vector<string> cmd;
         split_string(s," ",cmd);
         cmd[0] = remove_erase_if(cmd[0],"/");
+        if(user.channel.size() != 0 && s[0] != '/')
+        {
+            vector<string> send_to_server;
+            send_to_server.push_back("MESSAGE");
+            send_to_server.push_back(user.screen_channel);
+            send_to_server.push_back(s);
+            publish_message("com.audioctl." + user.name,send_to_server);
+            logger.add_message(Message(user.screen_channel,user.name,s));
+            logger.write_out_lines(1);
+            return 0;
+        }
         //wprintw(vin,string(cmd[0] + "\n").c_str());
         if(cmd[0] == "quit")
         {
@@ -142,6 +155,12 @@ int Reactor::internal_message_handler(string s) {
             }
             return 0;
         }
+        else if(cmd[0] == "UNACTIVE") {
+            active = !active;
+            if(!active) {
+                user.screen_channel = "";
+            }
+        }
         if(cmd.size() >= 2)
         {
             vector<string> send_to_client;
@@ -161,7 +180,6 @@ int Reactor::internal_message_handler(string s) {
                 if(!channel_exists) {
                     send_to_client.push_back("JOINCHANNEL");
                     send_to_client.push_back(cmd[1]);
-                    user.channel.push_back(cmd[1]);
                     publish_message("com.audioctl." + user.name,send_to_client);
                 }
                 else
@@ -182,6 +200,11 @@ int Reactor::internal_message_handler(string s) {
                     user.channel.erase(std::remove(user.channel.begin(),user.channel.end(),cmd[1]),user.channel.end());
                     user.channelusers[cmd[1]].clear();
                     publish_message("com.audioctl." + user.name,send_to_client);
+                    if(user.screen_channel == cmd[1])
+                    {
+                        display.switch_screen("reactor" + to_string(reactorid) + "_" + "main");
+                        user.screen_channel = "";
+                    }
                     display.destroy_screen("reactor" + to_string(reactorid) + "_" + cmd[1]);
                 }
                 else
@@ -190,20 +213,17 @@ int Reactor::internal_message_handler(string s) {
                 }
                 return 0;
             }
-        }
-    }
-    else
-    {
-        if(user.channel.size() != 0)
-        {
-            vector<string> send_to_server;
-            send_to_server.push_back("MESSAGE");
-            send_to_server.push_back(user.screen_channel);
-            send_to_server.push_back(s);
-            publish_message("com.audioctl." + user.name,send_to_server);
-            logger.add_message(Message(user.screen_channel,user.name,s));
-            logger.write_out_lines(1);
-            return 0;
+            else if(cmd[0] == "switchchannel") {
+                bool channel_exists = false;
+                for(string channel : user.channel)
+                    if(channel == cmd[1])
+                        channel_exists = true;
+                if(channel_exists) {
+                    user.screen_channel = cmd[1];
+                    display.switch_screen("reactor" + to_string(reactorid) + "_" + cmd[1]);
+                }
+                return 0;
+            }
         }
     }
 }
@@ -333,7 +353,9 @@ void Reactor::message_handler(const autobahn::wamp_event &event) {
         if(arguments[0][1] == "JOINCHANNEL") {
             display.create_screen("reactor" + to_string(reactorid) + "_" + arguments[0][2]);
             display.switch_screen("reactor" + to_string(reactorid) + "_" + arguments[0][2]);
-            display.print_to_screen("chat","Joined channel " + arguments[0][2],"reactor" + to_string(reactorid) + "_" + arguments[0][2]);
+            display.print_to_screen("chat","[status] Joined channel " + arguments[0][2] + "\n","reactor" + to_string(reactorid) + "_" + arguments[0][2]);
+            user.screen_channel = arguments[0][2];
+            user.channel.push_back(cmd[1]);
 
         }
         if(arguments[0][1] == "PRUNECHANUSER"){
@@ -354,7 +376,6 @@ void Reactor::message_handler(const autobahn::wamp_event &event) {
             logger.add_message(Message(arguments[0][3],arguments[0][2],arguments[0][4]));
             logger.write_out_lines(1);
             return;
-
         }
         if(arguments[0][1] == "CHANNAMES"){
             display.print_to_screen("chat","[status] Listing channels on the server.\n");

@@ -7,10 +7,11 @@ int tick = 0;
 class ReactorManager {
     public:
     ReactorManager() {
+        abstractor.print_to_screen("chat","[status] Welcome to WAMPVOIP!\n[status] Use /mkreactor to join a server.\n");
     }
     int new_reactor(string uri, string username)
     {
-        Reactor *temporary = new Reactor(uri,username,next_reactorid);
+        Reactor* temporary = new Reactor(uri,username,next_reactorid);
         r.push_back(temporary);
         r.back()->start();
         if(next_reactorid == 0) {
@@ -22,25 +23,48 @@ class ReactorManager {
     }
     int event_loop()
     {
-        new_reactor("ws://127.0.0.1:8080/ws","agrecascino3");
         while(true) {
             string line = abstractor.get_line();
-            //if(line.substr(0,11) == "/switchreactor") {
-            //    vector<string> data;
-            //    split_string(line," ",data);
-            //    active_reactor = atoi(data[1].c_str());
-            //    abstractor.switch_screen("reactor" + to_string(active_reactor) + "_main");
-            //    abstractor.print_to_screen("chat","Switched reactor.");
-//
-  //          }
-    //        else if(line.substr(0,9) == "/mkreactor") {
-      //          new_reactor("ws://127.0.0.1:8080/ws","agrecascino");
-        //    }
+            if(line.substr(0,14) == "/switchreactor") {
+                vector<string> data;
+                split_string(line," ",data);
+                if(data.size() == 2) {
+                    for(Reactor *reactor : r) {
+                        if(reactor->reactorid == active_reactor) {
+                            Mail::Message<string> msg = Mail::Message<string>("/UNACTIVE");
+                            reactor->reactormail.stuffMessage(msg);
+                        }
+                    }
+                    active_reactor = atoi(data[1].c_str());
+                    abstractor.switch_screen("reactor" + to_string(active_reactor) + "_main",true);
+                    abstractor.print_to_screen("chat","Switched to reactor: " + to_string(active_reactor) + "\n");
+                    for(Reactor *reactor : r) {
+                        if(reactor->reactorid == active_reactor) {
+                            Mail::Message<string> msg = Mail::Message<string>("/UNACTIVE");
+                            reactor->reactormail.stuffMessage(msg);
+                        }
+                    }
+                } else {
+                    abstractor.print_to_screen("chat","Invalid syntax.\n");
+                }
+                continue;
+            }
+            else if(line.substr(0,10) == "/mkreactor") {
+                vector<string> data;
+                split_string(line," ",data);
+                if(data.size() == 3) {
+                    abstractor.print_to_screen("chat","Creating reactor: " + to_string(next_reactorid) + "\n");
+                    new_reactor(data[1],data[2]);
+                } else {
+                    abstractor.print_to_screen("chat","Invalid syntax.\n");
+                }
+                continue;
+            }
             for(Reactor *reactor : r) {
                 if(reactor->reactorid == active_reactor) {
-                    reactor->internal_message_handler(line);
-                    //Mail::Message<string> msg = Mail::Message<string>(line);
-                    //reactor->reactormail.stuffMessage(msg);
+                    //reactor->internal_message_handler(line);
+                    Mail::Message<string> msg = Mail::Message<string>(line);
+                    reactor->reactormail.stuffMessage(msg);
                 }
             }
         }

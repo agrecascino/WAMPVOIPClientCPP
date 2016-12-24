@@ -26,6 +26,12 @@ string getline() {
                 {
                     continue;
                 }
+                else if(i == KEY_RESIZE) {
+                    for(NamedPanel &p : panels) {
+                        //wresize(p.windows[0],)
+                    }
+                    continue;
+                }
                 if(i == '\n')
                     break;
                 str += i;
@@ -34,6 +40,7 @@ string getline() {
             }
             //wprintw(cmd,"\n");
             wclear(panel.windows[2]);
+            wrefresh(panel.windows[2]);
             return str;
         }
     }
@@ -153,8 +160,10 @@ int panel_switch(string s) {
                         hide_panel(panel.panel[i]);
                 }
             }
-            for(int i = 0; i < 4;i++)
+            for(int i = 0; i < 4;i++) {
+                wrefresh(panel.windows[i]);
                 show_panel(panel.panel[i]);
+            }
             current_panel = s;
             update_panels();
             return 0;
