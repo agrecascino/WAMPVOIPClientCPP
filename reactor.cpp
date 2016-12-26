@@ -10,12 +10,6 @@ Reactor::Reactor(string url, string username, int reactoridtmp, std::map<string,
     encoder = opus_encoder_create(48000,1,OPUS_APPLICATION_AUDIO,&err);
     decoder = opus_decoder_create(48000,1,&err);
     err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(48000));
-    if (rsa_make_key(NULL, find_prng("sprng"), 1536/8, 65537, &key) != CRYPT_OK) {
-        exit(-1);
-    }
-    fclose(stderr);
-
-    //io_thread = thread(&Reactor::eventloop,this);
 
 }
 
@@ -48,19 +42,6 @@ void Reactor::start() {
 }
 
 void Reactor::eventloop() {
-    unsigned char* public_key = new unsigned char[512];
-    unsigned long length = 512;
-    string public_key2;
-    memset(public_key,0,512);
-    rsa_export(public_key,&length,PK_PUBLIC,&key);
-    auto pubkey = vector<unsigned char>(public_key,public_key + length);
-    for(unsigned int i =0;i < length;i++)
-    {
-        public_key2.push_back(pubkey[i]);
-    }
-    string base64key = base_64_encode(public_key2);
-    delete[] public_key;
-
     client ws_client;
     ws_client.init_asio(&io);
     auto transport = make_shared<autobahn::wamp_websocketpp_websocket_transport<websocketpp::config::asio_client>>(ws_client,uri,false);
@@ -91,14 +72,15 @@ void Reactor::eventloop() {
             io.stop();
             return;
 }
-            session->subscribe("com.audioctl." + user.name,std::bind(&Reactor::message_handler,this,std::placeholders::_1));
-            session->publish("com.audioctl.main", std::make_tuple(std::string("NICK"),std::string(user.name),base64key));
+            session->publish("com.audiomain", std::make_tuple(std::string("NICK"),std::string(user.name)));
             gettimeofday(&old_time,NULL);
+            this_thread::sleep_for(chrono::milliseconds(160));
+            session->subscribe("com.audioctl." + user.name,std::bind(&Reactor::message_handler,this,std::placeholders::_1));
+            session->publish("com.audiomain", std::make_tuple(std::string("PING")));
             while(true) {
             if(!reactormail.isEmpty()){
             if(internal_message_handler(reactormail.getMessage())) {
 
-            //break;
 }
 }
             gettimeofday(&time,NULL);
@@ -228,58 +210,17 @@ int Reactor::internal_message_handler(string s) {
     }
 }
 void Reactor::publish_message(string channel_name, vector<string> arguments) {
-    vector<string> base64_encrypted_arguments;
-    for(string arg : arguments)
-    {
-        unsigned char *encrypted_out = new unsigned char[512];
-
-        unsigned long outlen = 512;
-
-        if(arg.size() >= 181)
-        {
-            //wprintw(vin,"Splitting message.\n");
-            vector<string> enc;
-            enc.push_back(arg);
-            while(enc[enc.size() - 1].size() >= 181)
-            {
-                enc.push_back("\xffSM");
-                enc.push_back(enc[enc.size() - 2].substr(181,string::npos));
-                enc[enc.size() - 3] = enc[enc.size() - 3].substr(0,181);
-            }
-            for(size_t i = 0;i < enc.size();i++)
-            {
-                if(rsa_encrypt_key_ex((unsigned char*)(void*)enc[i].c_str(),enc[i].size(),encrypted_out,&outlen,NULL,NULL,NULL,0,0,LTC_PKCS_1_V1_5,&serv_pub) != CRYPT_OK)
-                {
-                    //wprintw(vin,"Encryption failed\n");
-                    //wrefresh(vin);
-                }
-                string encrypted_rsa(encrypted_out,encrypted_out + outlen);
-                enc[i] = base_64_encode(encrypted_rsa);
-                outlen = 512;
-            }
-            base64_encrypted_arguments.insert(base64_encrypted_arguments.end(),enc.begin(),enc.end());
-        }
-        if(rsa_encrypt_key_ex((unsigned char*)(void*)arg.c_str(),arg.size(),encrypted_out,&outlen,NULL,NULL,NULL,0,0,LTC_PKCS_1_V1_5,&serv_pub) != CRYPT_OK)
-        {
-            //wprintw(vin,"Encryption failed\n");
-            //wrefresh(vin);
-        }
-        string encrypted_rsa(encrypted_out,encrypted_out + outlen);
-        base64_encrypted_arguments.push_back(base_64_encode(encrypted_rsa));
-        delete[] encrypted_out;
-    }
-    session->publish(channel_name,base64_encrypted_arguments);
+    session->publish(channel_name,arguments);
 }
 
 void Reactor::message_handler(const autobahn::wamp_event &event) {
     vector<vector<string>> arguments;
     for(unsigned int i = 0;i < event.number_of_arguments();i++)
     {
-        try{
+        try {
             arguments.push_back(event.argument<vector<string>>(0));
 
-        }catch(const std::exception &e)
-        {
+        } catch(const std::exception &e) {
             //TODO: crash and burn here
             display.print_to_screen("chat","Something broke.");
             exit(-1);
@@ -288,52 +229,22 @@ void Reactor::message_handler(const autobahn::wamp_event &event) {
     }
     if(arguments[0][0] == "~"){
 
-        if(arguments[0][1] == "PUBKEY"){
-            string base64publickey = arguments[0][2];
-            unsigned char *nonb64key = new unsigned char[4096];
-            unsigned long k64len = 4096;
-            base64_decode((unsigned char*)(void*)base64publickey.c_str(),base64publickey.size(),nonb64key,&k64len);
-            rsa_import(nonb64key,k64len,&serv_pub);
-            //wprintw(vin, string(base64publickey  + "\n").c_str());
+        if(arguments[0][1] == "HELLO"){
+
             display.print_to_screen("chat","Connected to instance of audioserver.\n");
             session->provide("com.audiorpc." + user.name,std::bind(&Reactor::audio_rpc_handler,this,std::placeholders::_1));
-            delete[] nonb64key;
         }
     }
-    else{
-        for(size_t i = 0;i < arguments[0].size();i++){
-            string argument = base_64_decode(arguments[0][i]);
-            unsigned long outlen = 512;
-            unsigned char *output = new unsigned char[512];
-            int val = 0;
-            //wprintw(vin,"Decrypting...\n");
-            //wrefresh(vin);
-            rsa_decrypt_key_ex((unsigned char*)(void*)argument.c_str(),argument.size(),output,&outlen,NULL,NULL,0,LTC_PKCS_1_V1_5,&val,&key);
-            arguments[0][i] = string(output,output + outlen);
-            //wprintw(vin,"Decrypted.\n");
-            //wrefresh(vin);
-        }
-    }
-    for(size_t i = 0;i < arguments[0].size();i++)
-    {
-        //wprintw(vin,string(arguments[0][i] + "\n").c_str());
-        //wrefresh(vin);
-        if(arguments[0][i] == "\xffSM")
-        {
-            if((((int)i - 1) == -1) || (((int)i + 1) >= arguments[0].size()))
-            {
-                display.print_to_screen("chat","Message corrupt.\n","reactor" + to_string(reactorid) + "_main");
-                return;
-            }
-            arguments[0][i - 1] = arguments[0][i - 1] + arguments[0][i + 1];
-            arguments[0].erase(arguments[0].begin() + (i + 1));
-            arguments[0].erase(arguments[0].begin() + i);
-        }
-
-    }
-    if(arguments[0][0] == ":"){
+    else if(arguments[0][0] == ":"){
         //wprintw(vin,"Entered response block.\n");
         //wrefresh(vin);
+        if(arguments[0][1] == "HELLO"){
+
+            display.print_to_screen("chat","Connected to instance of audioserver.\n");
+            session->provide("com.audiorpc." + user.name,std::bind(&Reactor::audio_rpc_handler,this,std::placeholders::_1));
+            return;
+        }
+
         if(arguments[0][1] == "CHANUSERNAMES"){
             for(size_t i = 3; i < arguments[0].size();i++)
             {
@@ -355,7 +266,7 @@ void Reactor::message_handler(const autobahn::wamp_event &event) {
             display.switch_screen("reactor" + to_string(reactorid) + "_" + arguments[0][2]);
             display.print_to_screen("chat","[status] Joined channel " + arguments[0][2] + "\n","reactor" + to_string(reactorid) + "_" + arguments[0][2]);
             user.screen_channel = arguments[0][2];
-            user.channel.push_back(cmd[1]);
+            user.channel.push_back(arguments[0][2]);
 
         }
         if(arguments[0][1] == "PRUNECHANUSER"){
