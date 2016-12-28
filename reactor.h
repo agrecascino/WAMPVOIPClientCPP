@@ -33,6 +33,7 @@ class Reactor {
     int reactorid;
 
     private:
+    unsigned long userid;
     bool active;
     ALCdevice *device;
     OpusEncoder *encoder;

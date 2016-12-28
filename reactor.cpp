@@ -67,14 +67,17 @@ void Reactor::eventloop() {
 
             join_future = session->join("realm1").then([&](boost::future<uint64_t> joined){
             try {
-
+                userid = joined.get();
 }catch (const exception& e) {
             io.stop();
             return;
 }
+            bool ready = false;
+            session->subscribe("com.audiomain",[&](const autobahn::wamp_event &event){vector<vector<string>> arg; arg.push_back(event.argument<vector<string>>(0)); if(arg[0][0] == ":" && arg[0][1] == "READY" && arg[0][2] == to_string(userid)){ready = true;}});
             session->publish("com.audiomain", std::make_tuple(std::string("NICK"),std::string(user.name)));
+            while(!ready) {}
             gettimeofday(&old_time,NULL);
-            this_thread::sleep_for(chrono::milliseconds(160));
+            this_thread::sleep_for(chrono::milliseconds(20));
             session->subscribe("com.audioctl." + user.name,std::bind(&Reactor::message_handler,this,std::placeholders::_1));
             session->publish("com.audiomain", std::make_tuple(std::string("PING")));
             while(true) {
@@ -227,15 +230,7 @@ void Reactor::message_handler(const autobahn::wamp_event &event) {
         }
 
     }
-    if(arguments[0][0] == "~"){
-
-        if(arguments[0][1] == "HELLO"){
-
-            display.print_to_screen("chat","Connected to instance of audioserver.\n");
-            session->provide("com.audiorpc." + user.name,std::bind(&Reactor::audio_rpc_handler,this,std::placeholders::_1));
-        }
-    }
-    else if(arguments[0][0] == ":"){
+    if(arguments[0][0] == ":"){
         //wprintw(vin,"Entered response block.\n");
         //wrefresh(vin);
         if(arguments[0][1] == "HELLO"){
