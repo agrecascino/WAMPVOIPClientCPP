@@ -82,8 +82,6 @@ int main(void)
 {
     srand(time(NULL));
     alutInit(0,NULL);
-    ltc_mp = ltm_desc;
-    register_prng(&sprng_desc);
     //t.detach();
     ReactorManager reactman;
     reactman.event_loop();

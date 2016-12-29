@@ -6,7 +6,7 @@ Reactor::Reactor(string url, string username, int reactoridtmp, std::map<string,
     user.name = username;
     this->uri = url;
     int err;
-    device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_MONO16, 480);
+    device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_MONO16, 960);
     encoder = opus_encoder_create(48000,1,OPUS_APPLICATION_AUDIO,&err);
     decoder = opus_decoder_create(48000,1,&err);
     err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(48000));
@@ -319,7 +319,7 @@ void Reactor::audio_rpc_handler(autobahn::wamp_invocation i) {
         return;
     }
     short output[2880*2];
-    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,480,0);
+    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,960,0);
     RemoteUser *userptr = NULL;
     for(auto& kv : user.channelusers)
         for(RemoteUser user : kv.second)
@@ -336,7 +336,7 @@ void Reactor::audio_rpc_handler(autobahn::wamp_invocation i) {
     }
     userptr->buffer.push_back(ALuint());
     alGenBuffers(1,&userptr->buffer.back());
-    alBufferData(userptr->buffer.back(),AL_FORMAT_MONO16,output,960,48000);
+    alBufferData(userptr->buffer.back(),AL_FORMAT_MONO16,output,1920,48000);
     alSourceQueueBuffers(userptr->source,1,&userptr->buffer.back());
     alGetSourcei(userptr->source, AL_SOURCE_STATE, &state);
     /* Double buffers audio
@@ -353,22 +353,25 @@ void Reactor::audio_rpc_handler(autobahn::wamp_invocation i) {
 
 void Reactor::audio_dispatcher() {
     short buffer[2880*2];
-    alcCaptureStart(device);
+    if(!sendaudio) {
+        alcCaptureStart(device);
+        sendaudio = true;
+    }
     ALint samples;
 again:
     alcGetIntegerv(device, ALC_CAPTURE_SAMPLES, 1, &samples);
-    if(samples < 480)
+    if(samples < 960)
         return;
-    alcCaptureSamples(device,(ALCvoid *)buffer,480);
+    alcCaptureSamples(device,(ALCvoid *)buffer,960);
     unsigned char packet[2880];
-    int nbBytes = opus_encode(encoder,(const short *)&buffer,480,packet,2880);
+    int nbBytes = opus_encode(encoder,(const short *)&buffer,960,packet,2880);
     vector<unsigned char> packt(packet,packet + nbBytes);
     vector<vector<unsigned char>> packtpackt;
     packtpackt.push_back(packt);
     for(auto& kv : user.channelusers)
-        for(RemoteUser user : kv.second)
+        for(RemoteUser remote_user : kv.second)
         {
-            if(user.name == user.name)
+            if(remote_user.name == user.name)
                 continue;
             session->call("com.audiorpc." + user.name,std::make_tuple(user.name,packtpackt));
         }

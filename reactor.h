@@ -35,6 +35,7 @@ class Reactor {
     private:
     unsigned long userid;
     bool active;
+    bool sendaudio = false;
     ALCdevice *device;
     OpusEncoder *encoder;
     OpusDecoder *decoder;
