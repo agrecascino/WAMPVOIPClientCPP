@@ -6,7 +6,7 @@ Reactor::Reactor(string url, string username, int reactoridtmp, std::map<string,
     user.name = username;
     this->uri = url;
     int err;
-    device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_MONO16, 960);
+    device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_MONO16, 1920);
     encoder = opus_encoder_create(48000,1,OPUS_APPLICATION_AUDIO,&err);
     decoder = opus_decoder_create(48000,1,&err);
     err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(48000));
@@ -73,16 +73,18 @@ void Reactor::eventloop() {
             return;
 }
             bool ready = false;
-            session->subscribe("com.audiomain",[&](const autobahn::wamp_event &event){vector<vector<string>> arg; arg.push_back(event.argument<vector<string>>(0)); if(arg[0][0] == ":" && arg[0][1] == "READY" && arg[0][2] == to_string(userid)){ready = true;}});
+            display.print_to_screen("chat","crossbar\n");
+            session->subscribe("com.audiomain",[&](const autobahn::wamp_event &event){vector<vector<string>> arg; arg.push_back(event.argument<vector<string>>(0)); if(arg[0][0] == ":" && arg[0][1] == "READY" && arg[0][2] == to_string(userid)){ready = true;display.print_to_screen("chat","ready\n");}});
             session->publish("com.audiomain", std::make_tuple(std::string("NICK"),std::string(user.name)));
             while(!ready) {}
             gettimeofday(&old_time,NULL);
-            this_thread::sleep_for(chrono::milliseconds(20));
             session->subscribe("com.audioctl." + user.name,std::bind(&Reactor::message_handler,this,std::placeholders::_1));
             session->publish("com.audiomain", std::make_tuple(std::string("PING")));
+            display.print_to_screen("chat","ping\n");
             while(true) {
             if(!reactormail.isEmpty()){
             if(internal_message_handler(reactormail.getMessage())) {
+                exit(-1);
 
 }
 }
@@ -273,7 +275,7 @@ void Reactor::message_handler(const autobahn::wamp_event &event) {
             display.print_to_screen("chat","[-] " + arguments[0][3] + "\n","reactor" + to_string(reactorid) + "_" + arguments[0][2]);
             display.clear_screen("users","reactor" + to_string(reactorid) + "_" + arguments[0][2]);
             for(RemoteUser remoteuser : user.channelusers[arguments[0][2]])
-                display.print_to_screen("users",remoteuser.name,"reactor" + to_string(reactorid) + "_" + arguments[0][2]);
+                display.print_to_screen("users",remoteuser.name,"reactor" + to_string(reactorid) + "_" + arguments[0][2] + "\n");
             return;
         }
         if(arguments[0][1] == "MESSAGE"){
@@ -319,7 +321,7 @@ void Reactor::audio_rpc_handler(autobahn::wamp_invocation i) {
         return;
     }
     short output[2880*2];
-    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,960,0);
+    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,1920,0);
     RemoteUser *userptr = NULL;
     for(auto& kv : user.channelusers)
         for(RemoteUser user : kv.second)
@@ -336,14 +338,14 @@ void Reactor::audio_rpc_handler(autobahn::wamp_invocation i) {
     }
     userptr->buffer.push_back(ALuint());
     alGenBuffers(1,&userptr->buffer.back());
-    alBufferData(userptr->buffer.back(),AL_FORMAT_MONO16,output,1920,48000);
+    alBufferData(userptr->buffer.back(),AL_FORMAT_MONO16,output,3840,48000);
     alSourceQueueBuffers(userptr->source,1,&userptr->buffer.back());
     alGetSourcei(userptr->source, AL_SOURCE_STATE, &state);
     /* Double buffers audio
         if(tick == 1)
         {
             alSourcePlay(userptr->source);
-        */
+        } else*/
     if(state != AL_PLAYING /*&& tick > 1*/)
     {
         alSourcePlay(userptr->source);
@@ -360,11 +362,11 @@ void Reactor::audio_dispatcher() {
     ALint samples;
 again:
     alcGetIntegerv(device, ALC_CAPTURE_SAMPLES, 1, &samples);
-    if(samples < 960)
+    if(samples < 1920)
         return;
-    alcCaptureSamples(device,(ALCvoid *)buffer,960);
-    unsigned char packet[2880];
-    int nbBytes = opus_encode(encoder,(const short *)&buffer,960,packet,2880);
+    alcCaptureSamples(device,(ALCvoid *)buffer,1920);
+    unsigned char packet[2880*2];
+    int nbBytes = opus_encode(encoder,(const short *)&buffer,1920,packet,2880*2);
     vector<unsigned char> packt(packet,packet + nbBytes);
     vector<vector<unsigned char>> packtpackt;
     packtpackt.push_back(packt);
