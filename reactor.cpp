@@ -22,10 +22,8 @@ Reactor::Reactor(Reactor &&other) : logger(display,reactorid) {
     this->display = other.display;
     this->encoder = other.encoder;
     this->io_thread = std::move(other.io_thread);
-    this->key = std::move(other.key);
     this->logger = other.logger;
     this->old_time = other.old_time;
-    this->serv_pub = other.serv_pub;
     this->session = other.session;
     this->time = other.time;
     this->user = other.user;

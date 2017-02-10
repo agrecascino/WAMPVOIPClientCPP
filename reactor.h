@@ -40,8 +40,6 @@ class Reactor {
     OpusEncoder *encoder;
     OpusDecoder *decoder;
     std::shared_ptr<autobahn::wamp_session> session = make_shared<autobahn::wamp_session>(io,false);
-    rsa_key key;
-    rsa_key serv_pub;
     User user;
     string uri;
     timeval time, old_time;

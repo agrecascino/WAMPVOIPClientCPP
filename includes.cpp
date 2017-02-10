@@ -24,7 +24,6 @@
 #include <tuple>
 #include <autobahn/autobahn.hpp>
 #include <autobahn/wamp_subscription.hpp>
-#include <tomcrypt.h>
 #include <thread>
 #include <mutex>
 #include <time.h>

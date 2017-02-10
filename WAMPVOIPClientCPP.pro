@@ -30,4 +30,4 @@ HEADERS += \
 DEFINES += LTM_DESC
 QMAKE_CXXFLAGS += -std=c++14 -O0
 
-unix|win32: LIBS += -Wl,-Bstatic -lboost_system -lboost_thread -lboost_random -Wl,-Bdynamic  -lpthread  -lssl -lpanel -lncurses -lalut -lopenal -lopus -lgcc -lcrypto
+unix|win32: LIBS += -Wl,-Bstatic -lboost_system -Wl,-Bdynamic  -lboost_thread -lboost_random -lpthread  -lssl -lpanel -lncurses -lalut -lopenal -lopus -lgcc -lcrypto
