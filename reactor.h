@@ -16,6 +16,8 @@ class Reactor {
 
     void audio_rpc_handler(autobahn::wamp_invocation i);
 
+    void audio_packet_handler(string name, vector<unsigned char> packet);
+
     void start();
 
     void eventloop();
@@ -33,6 +35,8 @@ class Reactor {
     int reactorid;
 
     private:
+    sockaddr_in addr;
+    int media_socket;
     unsigned long userid;
     bool active;
     bool sendaudio = false;

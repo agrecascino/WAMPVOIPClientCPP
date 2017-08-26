@@ -10,7 +10,12 @@ Reactor::Reactor(string url, string username, int reactoridtmp, std::map<string,
     encoder = opus_encoder_create(48000,1,OPUS_APPLICATION_AUDIO,&err);
     decoder = opus_decoder_create(48000,1,&err);
     err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(48000));
-
+    media_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 2000;
+    fcntl(media_socket, F_SETFL, O_NONBLOCK);
+    //setsockopt (media_socket, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout));
 }
 
 Reactor::Reactor(Reactor &&other) : logger(display,reactorid) {
@@ -72,7 +77,22 @@ void Reactor::eventloop() {
 }
             bool ready = false;
             display.print_to_screen("chat","crossbar\n");
-            session->subscribe("com.audiomain",[&](const autobahn::wamp_event &event){vector<vector<string>> arg; arg.push_back(event.argument<vector<string>>(0)); if(arg[0][0] == ":" && arg[0][1] == "READY" && arg[0][2] == to_string(userid)){ready = true;display.print_to_screen("chat","ready\n");}});
+            session->subscribe("com.audiomain",[&](const autobahn::wamp_event &event){
+                vector<vector<string>> arg; arg.push_back(event.argument<vector<string>>(0));
+                if(arg[0][0] == ":" && arg[0][1] == "READY" && arg[0][2] == to_string(userid)) {
+                        ready = true;
+                        display.print_to_screen("chat","ready\n");
+                        string datagram = "R";
+                        datagram += (char)user.name.size();
+                        datagram.append(user.name);
+                        addr.sin_family = AF_INET;
+                        addr.sin_port = htons(9119);
+                        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                        connect(media_socket, (sockaddr*)&addr, sizeof(sockaddr_in));
+                        //send(media_socket, datagram.c_str(), datagram.size(), 0);
+                        sendto(media_socket, datagram.c_str(), datagram.size(),0, (sockaddr*)&addr, sizeof(sockaddr_in));
+                }
+            });
             session->publish("com.audiomain", std::make_tuple(std::string("NICK"),std::string(user.name)));
             while(!ready) {}
             gettimeofday(&old_time,NULL);
@@ -93,6 +113,24 @@ void Reactor::eventloop() {
             gettimeofday(&old_time,NULL);
 }
             audio_dispatcher();
+            socklen_t *len = (socklen_t*)malloc(sizeof(socklen_t));
+            struct sockaddr_in *peer = (sockaddr_in*)malloc(sizeof(struct sockaddr_in));
+            uint8_t *packet = new uint8_t[UINT16_MAX];
+            int status = recvfrom(media_socket, packet, UINT64_MAX, MSG_WAITALL, (sockaddr*)peer, len);
+            if(!status) {
+                //display.print_to_screen("chat", "Disconnected from mediarelay?");
+            } else if(status > 0) {
+                if(packet[0] == ':') {
+                    string name;
+                    name.insert(name.begin(),packet + 2, packet + (2 + (unsigned char)packet[1]));
+                    vector<unsigned char> packt;
+                    packt.insert(packt.end(), packet + (2 + (unsigned char)packet[1]), packet + status);
+                    audio_packet_handler(name, packt);
+                }
+            }
+            delete[] packet;
+            free(len);
+            free(peer);
             this_thread::sleep_for(chrono::milliseconds(2));
 }
 
@@ -211,6 +249,7 @@ int Reactor::internal_message_handler(string s) {
             }
         }
     }
+    return 0;
 }
 void Reactor::publish_message(string channel_name, vector<string> arguments) {
     session->publish(channel_name,arguments);
@@ -234,7 +273,7 @@ void Reactor::message_handler(const autobahn::wamp_event &event) {
         //wprintw(vin,"Entered response block.\n");
         //wrefresh(vin);
         if(arguments[0][1] == "HELLO"){
-
+            display.print_to_screen("notif","We're in!\n");
             display.print_to_screen("chat","Connected to instance of audioserver.\n");
             session->provide("com.audiorpc." + user.name,std::bind(&Reactor::audio_rpc_handler,this,std::placeholders::_1));
             return;
@@ -308,6 +347,41 @@ void Reactor::message_handler(const autobahn::wamp_event &event) {
 
 }
 
+void Reactor::audio_packet_handler(string name, vector<unsigned char> packet) {
+    ALint state;
+    short output[2880*2];
+    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,1920,0);
+    RemoteUser *userptr = NULL;
+    for(auto& kv : user.channelusers)
+        for(RemoteUser user : kv.second)
+            if(user.name == name)
+                userptr = &user;
+    if(userptr == NULL)
+        return;
+    alGetSourcei(userptr->source, AL_BUFFERS_PROCESSED, &state);
+    if(state > 0 && state <= userptr->buffer.size())
+    {
+        alSourceUnqueueBuffers(userptr->source,state,userptr->buffer.data());
+        alDeleteBuffers(state,&userptr->buffer[0]);
+        userptr->buffer.erase(userptr->buffer.begin(),userptr->buffer.begin() + state);
+    }
+    userptr->buffer.push_back(ALuint());
+    alGenBuffers(1,&userptr->buffer.back());
+    alBufferData(userptr->buffer.back(),AL_FORMAT_MONO16,output,frame_size*2,48000);
+    alSourceQueueBuffers(userptr->source,1,&userptr->buffer.back());
+    alGetSourcei(userptr->source, AL_SOURCE_STATE, &state);
+    /* Double buffers audio
+        if(tick == 1)
+        {
+            alSourcePlay(userptr->source);
+        } else*/
+    if(state != AL_PLAYING /*&& tick > 1*/)
+    {
+        alSourcePlay(userptr->source);
+    }
+    //tick++;
+}
+
 void Reactor::audio_rpc_handler(autobahn::wamp_invocation i) {
     ALint state;
     string name;
@@ -316,6 +390,7 @@ void Reactor::audio_rpc_handler(autobahn::wamp_invocation i) {
         name = i->argument<string>(0);
         packet = i->argument<vector<vector<unsigned char>>>(1)[0];
     }catch(const std::exception &e) {
+        display.print_to_screen("notif",string("Caught exception: ") + e.what());
         return;
     }
     short output[2880*2];
@@ -336,7 +411,7 @@ void Reactor::audio_rpc_handler(autobahn::wamp_invocation i) {
     }
     userptr->buffer.push_back(ALuint());
     alGenBuffers(1,&userptr->buffer.back());
-    alBufferData(userptr->buffer.back(),AL_FORMAT_MONO16,output,3840,48000);
+    alBufferData(userptr->buffer.back(),AL_FORMAT_MONO16,output,frame_size*2,48000);
     alSourceQueueBuffers(userptr->source,1,&userptr->buffer.back());
     alGetSourcei(userptr->source, AL_SOURCE_STATE, &state);
     /* Double buffers audio
@@ -371,8 +446,14 @@ again:
     for(auto& kv : user.channelusers)
         for(RemoteUser remote_user : kv.second)
         {
-            if(remote_user.name == user.name)
-                continue;
-            session->call("com.audiorpc." + user.name,std::make_tuple(user.name,packtpackt));
+            //if(remote_user.name == user.name)
+            //    continue;
+            vector<char> udpacket;
+            udpacket.push_back('S');
+            udpacket.push_back((char)remote_user.name.length());
+            udpacket.insert(udpacket.end(), remote_user.name.c_str(), remote_user.name.c_str() + user.name.length());
+            udpacket.insert(udpacket.end(), packet, packet + nbBytes);
+            sendto(media_socket, udpacket.data(), udpacket.size(), 0, (sockaddr*)&addr, sizeof(sockaddr_in));
+            //session->call("com.audiorpc." + user.name,std::make_tuple(user.name,packtpackt));
         }
 }

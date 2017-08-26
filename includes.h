@@ -15,6 +15,7 @@
 #include <string>
 #include <inttypes.h>
 #include <math.h>
+#include <sys/types.h>
 #include <functional>
 #include <string.h>
 #include <opus/opus.h>
