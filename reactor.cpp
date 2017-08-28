@@ -6,8 +6,8 @@ Reactor::Reactor(string url, string username, int reactoridtmp, std::map<string,
     user.name = username;
     this->uri = url;
     int err;
-    device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_MONO16, 1920);
-    encoder = opus_encoder_create(48000,1,OPUS_APPLICATION_AUDIO,&err);
+    device = alcCaptureOpenDevice(NULL, 48000, AL_FORMAT_MONO16, 120);
+    encoder = opus_encoder_create(48000,1,OPUS_APPLICATION_VOIP,&err);
     decoder = opus_decoder_create(48000,1,&err);
     err = opus_encoder_ctl(encoder,OPUS_SET_BITRATE(48000));
     media_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -115,8 +115,9 @@ void Reactor::eventloop() {
             audio_dispatcher();
             socklen_t *len = (socklen_t*)malloc(sizeof(socklen_t));
             struct sockaddr_in *peer = (sockaddr_in*)malloc(sizeof(struct sockaddr_in));
+            *len = sizeof(sockaddr_in);
             uint8_t *packet = new uint8_t[UINT16_MAX];
-            int status = recvfrom(media_socket, packet, UINT64_MAX, MSG_WAITALL, (sockaddr*)peer, len);
+            int status = recvfrom(media_socket, packet, UINT16_MAX, MSG_WAITALL, (sockaddr*)peer, len);
             if(!status) {
                 //display.print_to_screen("chat", "Disconnected from mediarelay?");
             } else if(status > 0) {
@@ -131,7 +132,7 @@ void Reactor::eventloop() {
             delete[] packet;
             free(len);
             free(peer);
-            this_thread::sleep_for(chrono::milliseconds(2));
+            //this_thread::sleep_for(chrono::milliseconds(2));
 }
 
 
@@ -162,6 +163,9 @@ int Reactor::internal_message_handler(string s) {
         if(cmd[0] == "quit")
         {
             publish_message("com.audioctl." + user.name,vector<string>(1,"QUIT"));
+            string s = "D";
+            sendto(media_socket, s.c_str(), 1, 0, (sockaddr*)&addr, sizeof(addr));
+            this_thread::sleep_for(chrono::milliseconds(32));
             endwin();
             return -1;
         }
@@ -256,6 +260,8 @@ void Reactor::publish_message(string channel_name, vector<string> arguments) {
 }
 
 void Reactor::message_handler(const autobahn::wamp_event &event) {
+    std::mutex mtx;
+    std::lock_guard<std::mutex> a(mtx);
     vector<vector<string>> arguments;
     for(unsigned int i = 0;i < event.number_of_arguments();i++)
     {
@@ -273,7 +279,7 @@ void Reactor::message_handler(const autobahn::wamp_event &event) {
         //wprintw(vin,"Entered response block.\n");
         //wrefresh(vin);
         if(arguments[0][1] == "HELLO"){
-            display.print_to_screen("notif","We're in!\n");
+            display.print_to_screen("notif","\nWe're in!");
             display.print_to_screen("chat","Connected to instance of audioserver.\n");
             session->provide("com.audiorpc." + user.name,std::bind(&Reactor::audio_rpc_handler,this,std::placeholders::_1));
             return;
@@ -350,20 +356,21 @@ void Reactor::message_handler(const autobahn::wamp_event &event) {
 void Reactor::audio_packet_handler(string name, vector<unsigned char> packet) {
     ALint state;
     short output[2880*2];
-    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,1920,0);
+    int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,120,0);
     RemoteUser *userptr = NULL;
     for(auto& kv : user.channelusers)
-        for(RemoteUser user : kv.second)
+        for(RemoteUser &user : kv.second)
             if(user.name == name)
                 userptr = &user;
     if(userptr == NULL)
         return;
     alGetSourcei(userptr->source, AL_BUFFERS_PROCESSED, &state);
-    if(state > 0 && state <= userptr->buffer.size())
+    if((state - userptr->lastbuffer) > 0)
     {
-        alSourceUnqueueBuffers(userptr->source,state,userptr->buffer.data());
-        alDeleteBuffers(state,&userptr->buffer[0]);
-        userptr->buffer.erase(userptr->buffer.begin(),userptr->buffer.begin() + state);
+        alSourceUnqueueBuffers(userptr->source,(state - userptr->lastbuffer),userptr->buffer.data());
+        alDeleteBuffers((state - userptr->lastbuffer),&userptr->buffer[0]);
+        userptr->buffer.erase(userptr->buffer.begin(),userptr->buffer.begin() + (state - userptr->lastbuffer));
+        userptr->lastbuffer = state;
     }
     userptr->buffer.push_back(ALuint());
     alGenBuffers(1,&userptr->buffer.back());
@@ -397,13 +404,13 @@ void Reactor::audio_rpc_handler(autobahn::wamp_invocation i) {
     int frame_size = opus_decode(decoder,packet.data(),packet.size(),output,1920,0);
     RemoteUser *userptr = NULL;
     for(auto& kv : user.channelusers)
-        for(RemoteUser user : kv.second)
+        for(RemoteUser &user : kv.second)
             if(user.name == name)
                 userptr = &user;
     if(userptr == NULL)
         return;
     alGetSourcei(userptr->source, AL_BUFFERS_PROCESSED, &state);
-    if(state > 0 && state <= userptr->buffer.size())
+    if((state > 0) && (state <= userptr->buffer.size()))
     {
         alSourceUnqueueBuffers(userptr->source,state,userptr->buffer.data());
         alDeleteBuffers(state,&userptr->buffer[0]);
@@ -435,11 +442,11 @@ void Reactor::audio_dispatcher() {
     ALint samples;
 again:
     alcGetIntegerv(device, ALC_CAPTURE_SAMPLES, 1, &samples);
-    if(samples < 1920)
+    if(samples < 120)
         return;
-    alcCaptureSamples(device,(ALCvoid *)buffer,1920);
+    alcCaptureSamples(device,(ALCvoid *)buffer,120);
     unsigned char packet[2880*2];
-    int nbBytes = opus_encode(encoder,(const short *)&buffer,1920,packet,2880*2);
+    int nbBytes = opus_encode(encoder,(const short *)&buffer,120,packet,2880*2);
     vector<unsigned char> packt(packet,packet + nbBytes);
     vector<vector<unsigned char>> packtpackt;
     packtpackt.push_back(packt);
@@ -456,4 +463,6 @@ again:
             sendto(media_socket, udpacket.data(), udpacket.size(), 0, (sockaddr*)&addr, sizeof(sockaddr_in));
             //session->call("com.audiorpc." + user.name,std::make_tuple(user.name,packtpackt));
         }
+    alcCaptureStop(device);
+    sendaudio = false;
 }

@@ -26,6 +26,7 @@ struct RemoteUser {
     string name;
     vector<ALuint> buffer;
     ALuint source;
+    ALint lastbuffer = 0;
     ~RemoteUser()
     {
         //alDeleteBuffers(2, &buffer[0]);
