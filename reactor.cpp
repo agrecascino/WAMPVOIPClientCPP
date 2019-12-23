@@ -77,10 +77,15 @@ void Reactor::eventloop() {
 }
             bool ready = false;
             display.print_to_screen("chat","crossbar\n");
+            std::mutex mtx;
+            std::unique_lock<std::mutex> lk(mtx);
+            std::condition_variable cv;
             session->subscribe("com.audiomain",[&](const autobahn::wamp_event &event){
                 vector<vector<string>> arg; arg.push_back(event.argument<vector<string>>(0));
                 if(arg[0][0] == ":" && arg[0][1] == "READY" && arg[0][2] == to_string(userid)) {
+                        std::mutex mtx;
                         ready = true;
+                        cv.notify_one();
                         display.print_to_screen("chat","ready\n");
                         string datagram = "R";
                         datagram += (char)user.name.size();
@@ -94,7 +99,7 @@ void Reactor::eventloop() {
                 }
             });
             session->publish("com.audiomain", std::make_tuple(std::string("NICK"),std::string(user.name)));
-            while(!ready) {}
+            cv.wait(lk);
             gettimeofday(&old_time,NULL);
             session->subscribe("com.audioctl." + user.name,std::bind(&Reactor::message_handler,this,std::placeholders::_1));
             session->publish("com.audiomain", std::make_tuple(std::string("PING")));

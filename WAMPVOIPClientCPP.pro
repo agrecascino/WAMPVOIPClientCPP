@@ -28,6 +28,6 @@ HEADERS += \
     sanitymanager.h
 
 DEFINES += LTM_DESC
-QMAKE_CXXFLAGS += -std=c++14 -O0
+QMAKE_CXXFLAGS += -std=c++14 -O0 -g
 
-unix|win32: LIBS += -Wl,-Bstatic -lboost_system -Wl,-Bdynamic  -lboost_thread -lboost_random -lpthread  -lssl -lpanel -lncurses -lalut -lopenal -lopus -lgcc -lcrypto
+unix|win32: LIBS += -lboost_system -Wl,-Bdynamic  -lboost_thread -lboost_random -lpthread  -lssl -lpanel -lncurses -lalut -lopenal -lopus -lgcc -lcrypto
